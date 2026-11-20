@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AATMT · AI Task Automation</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell" id="shell">
+  <aside class="side">
+    <a class="brand" href="#/"><div class="logo">A</div><span>AATMT</span></a>
+    <div class="nav-sec">Workspace</div>
+    <nav class="nav" id="nav-main"></nav>
+    <div class="nav-sec">System</div>
+    <nav class="nav" id="nav-sys"></nav>
+    <div class="side-foot"><span class="live" id="live" title="live updates"></span><span id="foot-text">AI Task Automation</span></div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="ghost icon" id="collapse-btn" title="Toggle sidebar"></button>
+      <button class="search-btn" id="search-btn"></button>
+      <span class="grow"></span>
+      <button class="ghost icon" id="theme-btn" title="Toggle theme"></button>
+      <button class="primary" id="capture-btn"></button>
+    </header>
+    <main class="content" id="app"></main>
+  </div>
+</div>
+<div id="modal-root"></div>
+<div id="toasts"></div>
+<script src="core.js"></script>
+<script src="tasks.js"></script>
+<script src="projects.js"></script>
+<script src="system.js"></script>
+</body>
+</html>
