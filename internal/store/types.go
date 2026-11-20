@@ -204,6 +204,24 @@ type Webhook struct {
 	Enabled bool     `json:"enabled"`
 }
 
+// MCPServer is an external Model Context Protocol server whose tools are
+// exposed to the agents (namespaced mcp__<server>__<tool>).
+type MCPServer struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`      // short slug, used in tool names
+	Transport  string            `json:"transport"` // "http" (Streamable HTTP) | "sse" (legacy SSE) | "stdio"
+	URL        string            `json:"url,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"` // values may be env:NAME
+	Command    string            `json:"command,omitempty"`
+	Args       []string          `json:"args,omitempty"`
+	Env        map[string]string `json:"env,omitempty"` // values may be env:NAME
+	Roles      []string          `json:"roles"`         // agents that get the tools: worker | chat
+	Tools      []string          `json:"tools"`         // allowlist of tool names (empty = all)
+	Approval   bool              `json:"approval"`      // ask the user before every call
+	TimeoutSec int               `json:"timeout_sec"`
+	Enabled    bool              `json:"enabled"`
+}
+
 // Template pre-fills a new task.
 type Template struct {
 	ID        string   `json:"id"`
@@ -224,6 +242,7 @@ type Config struct {
 	Rules     []*Rule           `json:"rules"`
 	Webhooks  []*Webhook        `json:"webhooks"`
 	Templates []*Template       `json:"templates"`
+	MCP       []*MCPServer      `json:"mcp_servers"`
 	Settings  Settings          `json:"settings"`
 	Usage     map[string]Usage  `json:"usage"` // per profile id
 	Daily     map[string]Usage  `json:"daily"` // per UTC date (YYYY-MM-DD), last 90 days

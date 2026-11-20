@@ -51,13 +51,13 @@ const ICONS = {
   layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   kanban: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/>',
+  plug: '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/>',
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
 };
-// Brutalist mark: hard offset shadow + thick outline in the theme's ink, acid-yellow face, black block "A", red task stamp.
-const LOGO = `<svg viewBox="0 0 64 64" aria-label="AATMT"><rect x="10" y="10" width="51" height="51" fill="currentColor"/>
-  <rect x="3.5" y="3.5" width="50" height="50" fill="#FFE500" stroke="currentColor" stroke-width="5"/>
-  <path fill="#111" fill-rule="evenodd" d="M11 47 22.5 12h11L45 47h-9.5l-2.3-7.5h-10.4L20.5 47zm14.6-15h5L28.1 23.5z"/>
-  <rect x="40" y="9" width="10" height="10" fill="#FF3B1F" stroke="currentColor" stroke-width="3"/></svg>`;
+// Modernist mark (Swiss/Bauhaus): flat ink square, a geometric "A" cut from a
+// triangle, and a red circle as its crossbar. Inverts automatically in dark mode.
+const LOGO = `<svg viewBox="0 0 64 64" aria-label="aatmt"><rect width="64" height="64" fill="currentColor"/>
+  <path fill="var(--panel)" d="M14 50 32 14l18 36H40l-8-16-8 16z"/><circle cx="32" cy="45" r="4.5" fill="#E5322D"/></svg>`;
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n] || ''}</svg>`;
 
 // ---------------------------------------------------------------- utils
@@ -208,7 +208,7 @@ function sourceFormData(p, fd = new FormData()) {
 // ---------------------------------------------------------------- shell, router
 const NAV_MAIN = [['', 'dashboard', 'Dashboard'], ['tasks', 'tasks', 'Tasks'], ['projects', 'folder', 'Projects'], ['chat', 'chat', 'Chat'],
   ['approvals', 'shieldcheck', 'Approvals'], ['llm', 'wave', 'LLM Records']];
-const NAV_SYS = [['providers', 'cpu', 'AI Providers'], ['agents', 'bot', 'Agents'], ['skills', 'sparkles', 'Skills'], ['rules', 'shield', 'Command Rules'],
+const NAV_SYS = [['providers', 'cpu', 'AI Providers'], ['agents', 'bot', 'Agents'], ['mcp', 'plug', 'MCP Servers'], ['skills', 'sparkles', 'Skills'], ['rules', 'shield', 'Command Rules'],
   ['templates', 'copy', 'Templates'], ['notifications', 'bell', 'Notifications'], ['logs', 'file', 'Logs'], ['settings', 'sliders', 'Settings']];
 const navHTML = (items) => items.map(([k, i, l]) => `<a href="#/${k}" data-nav="${k}">${ic(i)}<span>${l}</span>${k === 'approvals' ? '<b class="cnt hidden" id="pending-cnt"></b>' : ''}</a>`).join('');
 

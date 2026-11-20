@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/khangphantz/aatmt/internal/llm"
+	"github.com/khangphantz/aatmt/internal/mcp"
 	"github.com/khangphantz/aatmt/internal/store"
 )
 
 type Engine struct {
 	Store *store.Store
 	Pool  *llm.Pool
+	MCP   *mcp.Manager
 
 	mu        sync.Mutex
 	jobs      map[string]*job
@@ -46,7 +48,7 @@ var (
 )
 
 func New(st *store.Store, pool *llm.Pool) *Engine {
-	return &Engine{Store: st, Pool: pool, jobs: map[string]*job{}, approvals: map[string]chan decision{},
+	return &Engine{Store: st, Pool: pool, MCP: mcp.NewManager(st), jobs: map[string]*job{}, approvals: map[string]chan decision{},
 		locks: map[string]chan struct{}{}, chats: map[string]bool{}}
 }
 

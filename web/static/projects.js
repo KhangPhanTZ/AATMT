@@ -56,7 +56,9 @@ ROUTES.project = async ([id, tab]) => {
   if (!P.proj || P.proj.id !== id) { P.files = null; P.file = null; }
   P.tab = tab || 'overview';
   $('#app').innerHTML = `<div id="p-head"></div><div class="tabs" id="p-tabs"></div><div id="p-body"></div>`;
-  if (!(await loadProject(id))) { $('#app').innerHTML = empty('folder', 'Project not found'); return; }
+  const ok = await loadProject(id);
+  if (S.view !== 'project' || !$('#p-head')) return; // navigated away while loading
+  if (!ok) { $('#app').innerHTML = empty('folder', 'Project not found'); return; }
   S.onEvent = (ev) => {
     const pid = ev.data && ev.data.project_id;
     if ((ev.type === 'project' && pid === id) || ev.type === 'stage' || ev.type === 'task') refreshProject();
@@ -76,7 +78,7 @@ const refreshProject = debounce(async () => {
   if (body && body.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { drawProjectHead(); return; }
   drawProject();
 }, 400);
-function drawProject() { drawProjectHead(); drawProjectTabs(); drawProjectBody(); }
+function drawProject() { if (!$('#p-head')) return; drawProjectHead(); drawProjectTabs(); drawProjectBody(); }
 function drawProjectHead() {
   const p = P.proj, g = P.git;
   $('#p-head').innerHTML = `<div class="t-head"><a class="btn ghost icon" href="#/projects">${ic('back')}</a>

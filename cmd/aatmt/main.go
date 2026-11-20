@@ -87,6 +87,7 @@ func main() {
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = hs.Shutdown(sctx)
+		eng.MCP.Close() // stop stdio MCP server processes
 	}()
 	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)

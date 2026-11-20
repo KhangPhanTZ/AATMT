@@ -20,6 +20,8 @@ Mỗi agent dùng **AI provider/endpoint do bạn cấu hình**: OpenAI, Azure O
 | ![Project](docs/screenshots/project-overview.png) | ![Files](docs/screenshots/project-files.png) |
 | Agents: chuỗi model + prompt | LLM records |
 | ![Agents](docs/screenshots/page-agents.png) | ![LLM](docs/screenshots/task-llm.png) |
+| MCP Servers | Cấu hình MCP + tool allowlist |
+| ![MCP](docs/screenshots/mcp-page.png) | ![MCP edit](docs/screenshots/mcp-edit.png) |
 
 ---
 
@@ -96,6 +98,23 @@ Mỗi agent dùng **AI provider/endpoint do bạn cấu hình**: OpenAI, Azure O
 | Logs | Trang **Logs** (2000 dòng gần nhất) |
 | File browser | File browser của project |
 | Web tools | `web_search` (Tavily / Brave) và `web_fetch` (chỉ cho URL public) |
+| MCP Servers | Kết nối server Model Context Protocol (issue tracker, docs, database, browser, dịch vụ nội bộ…). Tool của server được đưa cho agent dưới tên `mcp__server__tool` |
+
+
+## MCP Servers
+
+Vào **System → MCP Servers → Add server**:
+
+- **Transport** hỗ trợ 3 loại:
+  - **Streamable HTTP**: chuẩn hiện tại, ví dụ `https://mcp.company.local/mcp`.
+  - **SSE (legacy)**: server cũ có endpoint `/sse`.
+  - **stdio**: chạy một process local, ví dụ `npx -y @modelcontextprotocol/server-github`.
+- **Headers / Environment**: dạng `KEY=value`. Giá trị có thể là `env:NAME` để secret không nằm trong file cấu hình. Giá trị nhập trực tiếp được che khi hiển thị trên UI.
+- **Agents**: chọn agent nào được dùng tool của server — *Work agent* và/hoặc *Chat assistant*.
+- **Tool allowlist**: bấm *Test / reconnect* để tải danh sách tool rồi chỉ chọn những tool cần dùng. Schema của mỗi tool đều tốn token prompt ở mỗi lượt của worker.
+- **Ask me before every call**: mỗi lần agent gọi tool của server này sẽ hiện banner xin duyệt, và quyết định được ghi vào Approvals.
+- Kết quả trả về từ tool MCP được bọc boundary "untrusted data", giống output của các tool khác.
+- Server không kết nối được sẽ bị bỏ qua và ghi vào Logs, không làm hỏng task. Server stdio được tắt khi app dừng.
 
 ## Tiết kiệm token khi giới hạn enterprise thấp
 
@@ -197,9 +216,9 @@ Các nhóm endpoint chính:
   - `GET /api/tasks/{id}/events|llm|diff|report`
 - **Projects**: `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/{id}`, `POST /api/projects/{id}/sync|chat`, `GET /api/projects/{id}/files|file`
 - **System**:
-  - `GET /api/dashboard|approvals|llm-records|logs|search|agents`
+  - `GET /api/dashboard|approvals|llm-records|logs|search|agents|mcp`
   - `PUT /api/agents/{role}`
-  - `PUT /api/skills|rules|webhooks|templates|settings`
+  - `PUT /api/skills|rules|webhooks|templates|settings|mcp`, `POST /api/mcp/{id}/test`
   - `GET /api/stream` (SSE)
 
 ## Cấu trúc mã nguồn
@@ -210,10 +229,11 @@ internal/store/     data model, lưu JSON, projects, event log, approvals/LLM re
 internal/llm/       adapter OpenAI-compatible & Anthropic, JSON-tool fallback, pool failover/breaker/rate limit
 internal/agent/     vision → planner → worker, chat, tools, command rules, skills, web tools, diff/revert, report
 internal/codeidx/   quét repo, cây thư mục, xếp hạng đoạn code
+internal/mcp/       MCP client (Streamable HTTP, SSE, stdio) + quản lý kết nối, định tuyến tool
 internal/notify/    webhook Slack/Discord/Teams/generic
 internal/logbuf/    buffer log cho trang Logs
 internal/server/    REST + SSE API, bảo vệ CSRF/host/token
-web/static/         UI (core.js, tasks.js, projects.js, system.js, style.css), nhúng bằng go:embed
+web/static/         UI (core.js, tasks.js, projects.js, system.js, mcp.js, style.css), nhúng bằng go:embed
 ```
 
 Chạy test (có test end-to-end với LLM giả lập: capture → OCR → plan → sửa code → diff → revert, project knowledge dùng chung, chat, rules, API):

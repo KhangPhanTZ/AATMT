@@ -18,6 +18,7 @@ import (
 
 	"github.com/khangphantz/aatmt/internal/codeidx"
 	"github.com/khangphantz/aatmt/internal/llm"
+	"github.com/khangphantz/aatmt/internal/mcp"
 	"github.com/khangphantz/aatmt/internal/store"
 )
 
@@ -37,6 +38,7 @@ type toolSet struct {
 	settings  store.Settings
 	project   *store.Project
 	skills    bool
+	mcp       []mcp.Bound
 }
 
 func toolDefs(o toolSet) []llm.Tool {
@@ -84,6 +86,20 @@ func toolDefs(o toolSet) []llm.Tool {
 	if o.settings.WebFetch {
 		tools = append(tools, llm.Tool{Name: "web_fetch", Description: "Fetch a public http(s) URL and return its text content (truncated).",
 			Schema: obj(map[string]any{"url": str("absolute URL")}, "url")})
+	}
+	for _, b := range o.mcp {
+		if o.readOnly && b.Approval {
+			continue // approval-gated MCP tools are only offered to the worker
+		}
+		schema := b.Tool.InputSchema
+		if schema == nil || schema["type"] != "object" {
+			schema = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		desc := strings.TrimSpace(b.Tool.Description)
+		if len(desc) > 600 {
+			desc = desc[:600] + "…"
+		}
+		tools = append(tools, llm.Tool{Name: b.Name, Description: "[MCP " + b.Server.Name + "] " + desc, Schema: schema})
 	}
 	if !o.readOnly {
 		tools = append(tools,
@@ -135,7 +151,8 @@ func (tc *toolCtx) exec(call llm.ToolCall) toolOutcome {
 		return def
 	}
 	b := func(k string) bool { v, _ := a[k].(bool); return v }
-	if tc.readOnly && !readOnlyTools[call.Name] {
+	isMCP := strings.HasPrefix(call.Name, "mcp__")
+	if tc.readOnly && !readOnlyTools[call.Name] && !isMCP {
 		return toolOutcome{content: "tool not available in chat (read-only)", isError: true}
 	}
 
@@ -173,13 +190,21 @@ func (tc *toolCtx) exec(call llm.ToolCall) toolOutcome {
 	case "web_fetch":
 		out, err = webFetch(tc.ctx, s("url"))
 	default:
-		err = fmt.Errorf("unknown tool %q", call.Name)
+		if isMCP {
+			var isErr bool
+			out, isErr, err = tc.mcpCall(call)
+			if err == nil && isErr {
+				err = errors.New(out)
+			}
+		} else {
+			err = fmt.Errorf("unknown tool %q", call.Name)
+		}
 	}
 	if err != nil {
 		return toolOutcome{content: clip(err.Error(), tc.settings.ToolOutputMaxChars), isError: true}
 	}
 	out = clip(out, tc.settings.ToolOutputMaxChars)
-	if tc.nonce != "" && untrustedTools[call.Name] {
+	if tc.nonce != "" && (untrustedTools[call.Name] || isMCP) {
 		out = fmt.Sprintf("<<untrusted-data id=%s>>\n%s\n<<end untrusted-data id=%s>>", tc.nonce, strings.ReplaceAll(out, "<<end untrusted-data", "<<end_untrusted-data"), tc.nonce)
 	}
 	return toolOutcome{content: out}
@@ -213,6 +238,36 @@ func (tc *toolCtx) saveMemory(note, scope string) (string, error) {
 		return nil
 	})
 	return "saved", err
+}
+
+// mcpCall runs an MCP tool, asking the user first when the server requires it.
+func (tc *toolCtx) mcpCall(call llm.ToolCall) (string, bool, error) {
+	srv, tool, ok := tc.e.MCP.Lookup(call.Name)
+	if !ok {
+		return "", false, fmt.Errorf("unknown MCP tool %q", call.Name)
+	}
+	label := fmt.Sprintf("mcp %s.%s %s", srv.Name, tool, excerpt(string(call.Args), 300))
+	if srv.Approval {
+		if tc.readOnly || tc.taskID == "" {
+			return "", false, errors.New("this MCP server requires approval; it can only be used by the worker inside a task")
+		}
+		title := ""
+		if t, err := tc.e.Store.Task(tc.taskID); err == nil {
+			title = t.Title
+		}
+		okd, err := tc.e.waitApproval(tc.ctx, tc.taskID, tc.stepID, label)
+		if err != nil {
+			return "", false, err
+		}
+		rec := store.ApprovalRecord{TaskID: tc.taskID, TaskTitle: title, Command: label, Decision: "allowed", DecidedBy: "human"}
+		if !okd {
+			rec.Decision = "denied"
+			tc.e.Store.AddApproval(rec)
+			return "", false, errors.New("the user DENIED this MCP call; continue without it")
+		}
+		tc.e.Store.AddApproval(rec)
+	}
+	return tc.e.MCP.Call(tc.ctx, call.Name, call.Args)
 }
 
 func (tc *toolCtx) loadSkill(name string) (string, error) {

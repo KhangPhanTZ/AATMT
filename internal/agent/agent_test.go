@@ -425,3 +425,78 @@ func TestProjectSharedKnowledgeHistoryAndChat(t *testing.T) {
 		t.Fatalf("report:\n%s", md)
 	}
 }
+
+func TestWorkerUsesMCPTool(t *testing.T) {
+	mcpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]any
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &m)
+		id, ok := m["id"]
+		if !ok {
+			w.WriteHeader(202)
+			return
+		}
+		res := map[string]any{"jsonrpc": "2.0", "id": id}
+		switch m["method"] {
+		case "initialize":
+			res["result"] = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"name": "jira-fake"}}
+		case "tools/list":
+			res["result"] = map[string]any{"tools": []any{map[string]any{"name": "get_issue", "description": "Read a ticket",
+				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string"}}}}}}
+		case "tools/call":
+			args := m["params"].(map[string]any)["arguments"].(map[string]any)
+			res["result"] = map[string]any{"content": []any{map[string]any{"type": "text", "text": "ticket " + args["key"].(string) + ": button is misaligned"}}}
+		}
+		_ = json.NewEncoder(w).Encode(res)
+	}))
+	defer mcpSrv.Close()
+
+	var sawTool, sawResult bool
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []map[string]any `json:"messages"`
+			Tools    []map[string]any `json:"tools"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		for _, tl := range body.Tools {
+			if fn, _ := tl["function"].(map[string]any); fn["name"] == "mcp__jira__get_issue" {
+				sawTool = true
+			}
+		}
+		tools := 0
+		for _, m := range body.Messages {
+			if m["role"] == "tool" {
+				tools++
+				if c, _ := m["content"].(string); strings.Contains(c, "ticket ABC-1: button is misaligned") && strings.Contains(c, "untrusted-data") {
+					sawResult = true
+				}
+			}
+		}
+		name, args := "mcp__jira__get_issue", `{"key":"ABC-1"}`
+		if tools > 0 {
+			name, args = "step_done", `{"summary":"read the ticket"}`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"tool_calls": []any{
+			map[string]any{"id": "c1", "type": "function", "function": map[string]any{"name": name, "arguments": args}}}}}}})
+	}))
+	defer llmSrv.Close()
+
+	st, _ := store.Open(t.TempDir())
+	_ = st.UpdateConfig(func(c *store.Config) error {
+		c.Profiles = []*store.Profile{{ID: "p", Name: "fake", Format: "openai", BaseURL: llmSrv.URL, Model: "m", Enabled: true}}
+		c.MCP = []*store.MCPServer{{ID: "j", Name: "jira", Transport: "http", URL: mcpSrv.URL, Roles: []string{"worker"}, Enabled: true}}
+		return nil
+	})
+	eng := New(st, llm.NewPool())
+	defer eng.MCP.Close()
+	task := &store.Task{Title: "t", Steps: []store.Step{{ID: "s", Title: "read ticket", Status: store.StepPending}}}
+	_ = st.CreateTask(task)
+	if err := eng.Run(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	got := waitStage(t, st, task.ID, store.StageReview, store.StagePaused)
+	if got.Stage != store.StageReview || !sawTool || !sawResult {
+		t.Fatalf("stage=%s err=%s sawTool=%v sawResult=%v", got.Stage, got.Error, sawTool, sawResult)
+	}
+}

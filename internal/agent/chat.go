@@ -155,7 +155,8 @@ func (e *Engine) answer(ctx context.Context, kind, id string, history []store.Ch
 		}
 		msgs = append(msgs, llm.Message{Role: role, Text: m.Text})
 	}
-	tools := toolDefs(toolSet{workspace: ws != "", readOnly: true, settings: st, project: proj, skills: len(cfg.Skills) > 0})
+	tools := toolDefs(toolSet{workspace: ws != "", readOnly: true, settings: st, project: proj, skills: len(cfg.Skills) > 0,
+		mcp: e.MCP.ToolsFor(ctx, store.RoleChat)})
 	tc := &toolCtx{e: e, ctx: ctx, taskID: taskID, root: ws, settings: st, project: proj, readOnly: true}
 	if st.UntrustedBoundary {
 		tc.nonce = store.ShortID()

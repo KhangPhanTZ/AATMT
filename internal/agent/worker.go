@@ -108,7 +108,8 @@ func (e *Engine) runStep(ctx context.Context, t *store.Task, idx int) (paused bo
 	base := e.stepPrompt(t, proj, idx, notes, tree)
 	system := e.workerSystem(st, ws != "")
 	cfg := e.Store.Config()
-	tools := toolDefs(toolSet{workspace: ws != "", settings: st, project: proj, skills: len(cfg.Skills) > 0})
+	tools := toolDefs(toolSet{workspace: ws != "", settings: st, project: proj, skills: len(cfg.Skills) > 0,
+		mcp: e.MCP.ToolsFor(ctx, store.RoleWorker)})
 	tc := &toolCtx{e: e, ctx: ctx, taskID: t.ID, stepID: step.ID, root: ws, settings: st, project: proj}
 	if st.UntrustedBoundary {
 		tc.nonce = store.ShortID()

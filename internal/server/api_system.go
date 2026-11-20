@@ -194,9 +194,20 @@ func (s *Server) agents(w http.ResponseWriter, r *http.Request) {
 		if chain == nil {
 			chain = []string{}
 		}
+		var mcpServers []string
+		for _, m := range cfg.MCP {
+			for _, r := range m.Roles {
+				if r == role && m.Enabled {
+					mcpServers = append(mcpServers, m.Name)
+				}
+			}
+		}
+		if mcpServers == nil {
+			mcpServers = []string{}
+		}
 		out = append(out, map[string]any{
 			"role": role, "description": roleInfo[role], "builtin": agent.BuiltinPrompts[role],
-			"prompt": cfg.Prompts[role], "chain": chain, "tools": tools[role],
+			"prompt": cfg.Prompts[role], "chain": chain, "tools": tools[role], "mcp": mcpServers,
 		})
 	}
 	writeJSON(w, 200, out)

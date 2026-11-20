@@ -198,6 +198,7 @@ ROUTES.agents = async () => {
       <div class="row nowrap">${ic('bot')}<span class="name">${names[a.role]}</span><span class="chip">${a.role}</span><span class="badge outline">${a.prompt ? 'custom prompt' : 'built-in'}</span></div>
       <div class="small muted">${esc(a.description)}</div>
       ${a.tools.length ? `<div class="chips">${a.tools.map((t) => `<span class="chip">${t}</span>`).join('')}</div>` : ''}
+      ${a.mcp.length ? `<div class="chips">${a.mcp.map((m) => `<a class="chip" href="#/mcp" style="color:var(--accent)">${ic('plug')} mcp: ${esc(m)}</a>`).join('')}</div>` : ''}
       <div class="section-title" style="margin-top:6px">Model chain (failover order)</div>
       <div class="chain">${a.chain.map((id, i) => byId[id] ? `<div class="ci"><span class="ix">${i + 1}</span><span class="grow">${esc(byId[id].name)}</span>
         ${a.role === 'vision' && !byId[id].vision ? '<span class="badge err">no vision</span>' : ''}${!byId[id].enabled ? '<span class="badge">off</span>' : ''}

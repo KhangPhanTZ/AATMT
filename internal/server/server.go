@@ -46,6 +46,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/webhooks", s.putWebhooks)
 	mux.HandleFunc("POST /api/webhooks/test", s.testWebhook)
 	mux.HandleFunc("PUT /api/templates", s.putTemplates)
+	mux.HandleFunc("GET /api/mcp", s.listMCP)
+	mux.HandleFunc("PUT /api/mcp", s.putMCP)
+	mux.HandleFunc("POST /api/mcp/{id}/test", s.testMCP)
 	// workspace
 	mux.HandleFunc("GET /api/dashboard", s.dashboard)
 	mux.HandleFunc("GET /api/search", s.search)

@@ -255,9 +255,11 @@ ROUTES.task = async ([id]) => {
   $('#app').innerHTML = `<div id="t-head"></div><div id="t-banners"></div><div class="tabs" id="t-tabs"></div>
     <div class="layout"><div id="t-body"></div><aside id="t-side" class="stack"></aside></div>`;
   const r = await act(() => api('GET', '/tasks/' + id));
+  if (S.view !== 'task' || !$('#t-head')) return; // navigated away while loading
   if (!r) { $('#app').innerHTML = empty('tasks', 'Task not found'); return; }
   setTask(r);
   const evs = await act(() => api('GET', `/tasks/${id}/events?limit=1000`));
+  if (S.view !== 'task' || !$('#t-head')) return;
   if (evs) T.events = evs;
   S.onEvent = (ev) => {
     if (ev.task_id !== T.task.id) return;
@@ -286,6 +288,7 @@ const refreshTask = debounce(async () => {
 document.addEventListener('focusout', () => { if (pendingRefresh && S.view === 'task') { pendingRefresh = false; setTimeout(() => drawTask(false), 60); } });
 
 function drawTask(first, skipBody) {
+  if (!$('#t-head')) return;
   drawHead(); drawBanners(); drawSide(); drawTabs();
   if (skipBody) return;
   if (T.tab === 'plan' && T.planEdit && !first) return;
