@@ -1,16 +1,25 @@
 name: CI
+# No third-party actions: works when the repository only allows local actions.
 on:
   push:
+    branches: ["**"]
   pull_request:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOTOOLCHAIN: auto # fetch the Go version go.mod asks for
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24"
+      - name: Check out
+        run: |
+          git init -q .
+          git fetch -q --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
+          git checkout -q FETCH_HEAD
+      - run: go version
       - run: go vet ./...
       - run: go test -race ./...
-      - run: for f in web/static/*.js; do node --check "$f"; done
-      - run: ./build.sh ci
+      - name: Check UI scripts
+        run: for f in web/static/*.js; do node --check "$f"; done
+      - name: Build all platforms
+        run: ./build.sh ci
