@@ -53,6 +53,11 @@ const ICONS = {
   kanban: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/>',
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
 };
+// Brutalist mark: hard offset shadow + thick outline in the theme's ink, acid-yellow face, black block "A", red task stamp.
+const LOGO = `<svg viewBox="0 0 64 64" aria-label="AATMT"><rect x="10" y="10" width="51" height="51" fill="currentColor"/>
+  <rect x="3.5" y="3.5" width="50" height="50" fill="#FFE500" stroke="currentColor" stroke-width="5"/>
+  <path fill="#111" fill-rule="evenodd" d="M11 47 22.5 12h11L45 47h-9.5l-2.3-7.5h-10.4L20.5 47zm14.6-15h5L28.1 23.5z"/>
+  <rect x="40" y="9" width="10" height="10" fill="#FF3B1F" stroke="currentColor" stroke-width="3"/></svg>`;
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n] || ''}</svg>`;
 
 // ---------------------------------------------------------------- utils
@@ -276,6 +281,7 @@ function applyTheme(t) {
   $('#theme-btn').innerHTML = ic(t === 'dark' ? 'sun' : 'moon');
 }
 window.addEventListener('DOMContentLoaded', () => {
+  $('#logo').innerHTML = LOGO;
   $('#nav-main').innerHTML = navHTML(NAV_MAIN);
   $('#nav-sys').innerHTML = navHTML(NAV_SYS);
   $('#collapse-btn').innerHTML = ic('panel');

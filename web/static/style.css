@@ -41,14 +41,16 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 .shell { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
 .shell.collapsed { grid-template-columns: 60px 1fr; }
 .side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow-y: auto; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; font-weight: 750; letter-spacing: .02em; font-size: 15px; }
-.brand .logo { width: 26px; height: 26px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 800; flex: none; }
+.brand { display: flex; align-items: center; gap: 11px; padding: 16px 16px 12px; color: var(--ink); }
+.brand .logo { width: 32px; height: 32px; flex: none; color: var(--ink); display: block; }
+.brand .logo svg { width: 100%; height: 100%; display: block; }
+.brand .word { font: 900 16px/1 var(--mono); letter-spacing: .14em; padding: 4px 6px 3px; border: 2.5px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); background: var(--panel); }
 .nav-sec { padding: 14px 18px 4px; font-size: 11px; font-weight: 600; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
 .nav a { display: flex; align-items: center; gap: 10px; margin: 1px 8px; padding: 7px 10px; border-radius: var(--r); color: var(--muted); font-weight: 500; }
 .nav a:hover { background: var(--soft); color: var(--text); }
 .nav a.active { background: var(--accent-soft); color: var(--accent); }
 .nav a .cnt { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
-.shell.collapsed .nav a span, .shell.collapsed .nav-sec, .shell.collapsed .brand span, .shell.collapsed .side-foot span { display: none; }
+.shell.collapsed .nav a span, .shell.collapsed .nav-sec, .shell.collapsed .brand .word, .shell.collapsed .side-foot span { display: none; }
 .shell.collapsed .nav a { justify-content: center; }
 .side-foot { margin-top: auto; padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; }
 .main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
