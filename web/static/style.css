@@ -1,22 +1,27 @@
-/* AATMT — flat design: solid fills, 1px rules, no shadows, no gradients. */
+/* AATMT — soft neobrutalism: warm paper, ink outlines, small hard shadows,
+   the logo's signal red as the accent and quiet pastels for state. */
 :root {
-  --bg: #f4f5f7; --panel: #ffffff; --soft: #f0f1f4; --line: #e3e5ea; --line2: #d4d7de;
-  --text: #15171c; --muted: #6b7180; --faint: #9aa0ac;
-  --accent: #4f46e5; --accent-2: #4338ca; --accent-soft: #eceafd; --on-accent: #ffffff;
-  --ink: #15171c; --on-ink: #ffffff;
-  --ok: #16a34a; --ok-soft: #e6f6ec; --warn: #d97706; --warn-soft: #fdf1df; --bad: #dc2626; --bad-soft: #fde8e8;
-  --run: #7c3aed; --run-soft: #f1eafe; --plan: #2563eb; --plan-soft: #e6eefd; --rev: #db2777; --rev-soft: #fce7f1;
-  --r: 6px; --r-lg: 8px;
+  --bg: #f4efe6; --panel: #fffcf6; --soft: #efe8dc; --line: #e2d9ca; --line2: #cfc4b2;
+  --text: #1a1a1a; --muted: #6a6359; --faint: #9c9488;
+  --accent: #e5322d; --accent-2: #c92a25; --accent-soft: #fbe3df; --on-accent: #ffffff;
+  --ink: #1a1a1a; --on-ink: #fffcf6;
+  --bc: #1a1a1a; --shc: #1a1a1a; --bw: 1.5px;
+  --ok: #2e8b57; --ok-soft: #ddf1e3; --warn: #b86e00; --warn-soft: #fcefc9; --bad: #b42318; --bad-soft: #fbe1dc;
+  --run: #6b4fd8; --run-soft: #eae4fb; --plan: #2f62c9; --plan-soft: #e1ebfa; --rev: #0f8577; --rev-soft: #d7f0ec;
+  --butter: #fff1c7;
+  --r: 8px; --r-lg: 10px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
 }
 [data-theme="dark"] {
-  --bg: #0e1015; --panel: #15181f; --soft: #1b1f28; --line: #262b36; --line2: #323846;
-  --text: #e7e9ee; --muted: #949bab; --faint: #6b7282;
-  --accent: #7c74ff; --accent-2: #8f88ff; --accent-soft: #23214a; --ink: #e7e9ee; --on-ink: #0e1015;
-  --ok: #34c77b; --ok-soft: #132b1f; --warn: #f0a63a; --warn-soft: #33260f; --bad: #f26b6b; --bad-soft: #3a1818;
-  --run: #a582ff; --run-soft: #261d42; --plan: #5b93ff; --plan-soft: #172440; --rev: #f472b6; --rev-soft: #3a1529;
+  --bg: #151412; --panel: #1e1c19; --soft: #26231f; --line: #34302a; --line2: #48423a;
+  --text: #f1ece3; --muted: #ada496; --faint: #7d766b;
+  --accent: #f0544e; --accent-2: #ff6a64; --accent-soft: #3a1e1c; --ink: #f1ece3; --on-ink: #151412;
+  --bc: #6b6458; --shc: #000000;
+  --ok: #4cc38a; --ok-soft: #173226; --warn: #f2b13c; --warn-soft: #3a2e12; --bad: #f07068; --bad-soft: #3a1b18;
+  --run: #a68bff; --run-soft: #2a2346; --plan: #6e9bff; --plan-soft: #1a2742; --rev: #3cc4b2; --rev-soft: #12312d;
+  --butter: #3a3216;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -303,3 +308,92 @@ ul.clean { margin: 0; padding-left: 18px; } ul.clean li { margin: 2px 0; }
 .toast.err { background: var(--bad); color: #fff; }
 .help { font-size: 12.5px; color: var(--muted); background: var(--soft); border-radius: var(--r-lg); padding: 10px 12px; }
 .help b { color: var(--text); }
+
+/* ================================================================ soft neobrutalism layer */
+h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+h2, h3 { font-weight: 750; }
+.side { border-right: var(--bw) solid var(--bc); }
+.topbar { border-bottom: var(--bw) solid var(--bc); }
+.side-foot { border-top: var(--bw) solid var(--bc); }
+
+.card, .stat, .table-wrap, .chat, .graph-wrap, .banner, .toast { border: var(--bw) solid var(--bc); box-shadow: 3px 3px 0 var(--shc); }
+.tcard, .stepi, .shot, .diff, .code, .legend, .palette .res a.on { border: var(--bw) solid var(--bc); box-shadow: 2px 2px 0 var(--shc); }
+.stepi.done { border-color: var(--bc); }
+.stepi.running { border-color: var(--bc); background: var(--accent-soft); }
+.stepi.running .num { background: var(--accent); }
+.modal { border: 2px solid var(--bc); box-shadow: 6px 6px 0 var(--shc); }
+.card .card, .card .table-wrap, .card .code, .card .diff { box-shadow: none; }
+.pcard.click:hover, .tcard:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--shc); border-color: var(--bc); }
+.pcard.click, .tcard { transition: transform .08s, box-shadow .08s; }
+
+button, .btn { border: var(--bw) solid var(--bc); box-shadow: 2px 2px 0 var(--shc); font-weight: 600; transition: transform .08s, box-shadow .08s, background .1s; }
+button:hover:not(:disabled), .btn:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--shc); }
+button:active:not(:disabled), .btn:active { transform: translate(1px, 1px); box-shadow: 0 0 0 var(--shc); }
+button.primary, button.primary:hover { border-color: var(--bc); }
+button.dark { background: var(--ink); color: var(--on-ink); }
+button.ghost, .btn.ghost, .tabs button, .seg button, .acts button, .filters button, .zoom button, .thumb button, .bubble .meta button,
+button.ghost:hover, .btn.ghost:hover, .tabs button:hover, .seg button:hover, .acts button:hover, .thumb button:hover, .bubble .meta button:hover {
+  box-shadow: none; transform: none; }
+button.ghost, .btn.ghost, .tabs button, .seg button { border-color: transparent; }
+.filters button { border: 1px solid var(--bc); box-shadow: none; }
+.zoom button { border: var(--bw) solid var(--bc); }
+.acts button:hover { border-color: var(--bc); }
+
+input, select, textarea { border: var(--bw) solid var(--bc); background: var(--panel); }
+input:focus, select:focus, textarea:focus { border-color: var(--bc); box-shadow: 2px 2px 0 var(--accent); }
+.palette input, .palette input:focus { border: none; border-bottom: var(--bw) solid var(--bc); box-shadow: none; }
+.search-btn { border: var(--bw) solid var(--bc); background: var(--panel); box-shadow: none; transform: none !important; }
+.search-btn:hover { box-shadow: 2px 2px 0 var(--shc) !important; }
+
+.nav a { border: var(--bw) solid transparent; }
+.nav a.active { background: var(--accent-soft); color: var(--text); border-color: var(--bc); box-shadow: 2px 2px 0 var(--shc); }
+.nav a.active svg.i { color: var(--accent); }
+.nav a .cnt { border: 1px solid var(--bc); }
+
+.tabs, .seg { border: var(--bw) solid var(--bc); background: var(--soft); }
+.tabs button.active, .seg button.on { background: var(--panel); color: var(--text); box-shadow: inset 0 0 0 var(--bw) var(--bc); }
+.tabs .n { background: var(--panel); border: 1px solid var(--bc); color: var(--text); }
+.tabs .n.warn { background: var(--accent); color: #fff; }
+
+.badge { border: 1px solid var(--bc); }
+.badge.running { background: var(--accent-soft); color: var(--accent); }
+.badge.outline { box-shadow: none; }
+.chip { border-color: var(--line2); }
+
+.stat .v { font-weight: 800; letter-spacing: -0.02em; }
+.stat.accent { background: var(--accent); border-color: var(--bc); }
+.grid4 > .stat:nth-child(2) { background: var(--butter); }
+.grid4 > .stat:nth-child(3) { background: var(--ok-soft); }
+.grid4 > .stat:nth-child(4) { background: var(--plan-soft); }
+
+.pipeline .st { border: var(--bw) solid var(--bc); }
+.pipeline .st.now { background: var(--accent); }
+.pipeline .st.now.paused { background: var(--warn); }
+
+.column { border: var(--bw) solid var(--bc); }
+.column-head { border-bottom: 1px dashed var(--line2); margin-bottom: 8px; }
+.bar { height: 8px; border: 1px solid var(--bc); background: var(--panel); }
+.stages { border: 1px solid var(--bc); }
+.switch span { border: var(--bw) solid var(--bc); }
+.switch span::before { top: 1px; left: 1px; width: 12px; height: 12px; background: var(--panel); border: 1px solid var(--bc); }
+.switch input:checked + span { background: var(--accent); }
+
+.table-wrap .toolbar { border-bottom: var(--bw) solid var(--bc); background: var(--panel); }
+table.t th { background: var(--soft); color: var(--text); border-bottom: var(--bw) solid var(--bc); }
+.foot { border-top: var(--bw) solid var(--bc); }
+.modal-h { border-bottom: var(--bw) solid var(--bc); }
+.modal-f { border-top: var(--bw) solid var(--bc); }
+
+.bubble.assistant { border: 1px solid var(--bc); }
+.bubble.user { box-shadow: 2px 2px 0 var(--accent); }
+.chat-in { border-top: var(--bw) solid var(--bc); }
+.help { border: 1px dashed var(--line2); }
+.dropzone { border: var(--bw) dashed var(--bc); }
+.chart .b i { background: var(--accent); }
+.chart .b i.c { background: var(--accent-soft); }
+.diff .hunk { color: var(--text); background: var(--butter); }
+.toast { background: var(--panel); color: var(--text); }
+.toast.err { background: var(--bad-soft); color: var(--bad); }
+.board { grid-template-columns: repeat(7, minmax(148px, 1fr)); padding: 0 4px 6px 0; }
+[data-theme="dark"] button.ok, [data-theme="dark"] button.primary, [data-theme="dark"] .stat.accent { color: #151412; }
+[data-theme="dark"] .stat.accent .l { color: rgba(21, 20, 18, .75); }

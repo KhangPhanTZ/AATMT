@@ -5,7 +5,7 @@ Ghi nhận task từ cấp trên (dán tin nhắn, ảnh chụp màn hình), g�
 Mỗi agent dùng **AI provider/endpoint do bạn cấu hình**: OpenAI, Azure OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, Ollama, LM Studio, LiteLLM hoặc **gateway nội bộ công ty**. Mỗi agent có chuỗi failover riêng. App được thiết kế để **tốn ít token khi đổi model**.
 
 - **Một binary Go duy nhất** (~8 MB), chỉ dùng thư viện chuẩn. Không cần database, không cần Node.
-- **Giao diện tiếng Anh, flat design**, layout sidebar. UI là HTML/JS thuần, nhúng vào binary, không cần build step. Có dark mode và tìm kiếm ⌘K.
+- **Giao diện tiếng Anh, phong cách neobrutalism nhẹ**: nền giấy kem, viền mực, bóng đổ cứng nhỏ, màu nhấn đỏ lấy từ logo và các tông pastel cho từng trạng thái; layout sidebar. UI là HTML/JS thuần, nhúng vào binary, không cần build step. Có dark mode và tìm kiếm ⌘K.
 - Dữ liệu là file JSON trong một thư mục. Muốn backup thì copy thư mục đó.
 
 

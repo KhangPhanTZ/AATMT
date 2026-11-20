@@ -4,7 +4,7 @@
 const S = { token: localStorage.getItem('token') || '', cfg: null, projects: [], view: '', onEvent: null, pending: 0 };
 const STAGES = ['inbox', 'analyzing', 'planned', 'running', 'paused', 'review', 'done'];
 const STAGE_LABEL = { inbox: 'Inbox', analyzing: 'Analyzing', planned: 'Planned', running: 'In progress', paused: 'Paused', review: 'Review', done: 'Done' };
-const STAGE_COLOR = { inbox: '#9aa0ac', analyzing: '#7c3aed', planned: '#2563eb', running: '#4f46e5', paused: '#d97706', review: '#db2777', done: '#16a34a' };
+const STAGE_COLOR = { inbox: '#9c9488', analyzing: '#6b4fd8', planned: '#2f62c9', running: '#e5322d', paused: '#c77700', review: '#0f8577', done: '#2e8b57' };
 
 // ---------------------------------------------------------------- icons (24px stroke icons)
 const ICONS = {

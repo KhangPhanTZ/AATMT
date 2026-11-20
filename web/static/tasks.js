@@ -639,7 +639,7 @@ async function drawReport(body) {
 
 // ---- graph (request → brief → steps → changes / knowledge / questions)
 const G = { scale: 1, x: 0, y: 0 };
-const NODE_COLORS = { request: '#64748b', image: '#0ea5e9', brief: '#16a34a', step: '#4f46e5', running: '#7c3aed', change: '#db2777', memory: '#d97706', question: '#dc2626', review: '#0f766e' };
+const NODE_COLORS = { request: '#6a6359', image: '#2f62c9', brief: '#2e8b57', step: '#6b4fd8', running: '#e5322d', change: '#0f8577', memory: '#c77700', question: '#b42318', review: '#1a1a1a' };
 function graphModel() {
   const x = T.task; const nodes = []; const edges = [];
   const add = (id, type, title, sub, col, row) => nodes.push({ id, type, title, sub, col, row });
@@ -677,7 +677,7 @@ function drawGraph(body, keepView) {
   const W = 200, H = 64, CX = 250, RY = 90;
   const pos = {}; nodes.forEach((n) => (pos[n.id] = { x: 40 + n.col * CX, y: 60 + n.row * RY }));
   const maxX = Math.max(...nodes.map((n) => pos[n.id].x)) + W + 40, maxY = Math.max(...nodes.map((n) => pos[n.id].y)) + H + 60;
-  const ecol = { spawns: '#16a34a', chain: '#4f46e5', yields: '#d97706', asks: '#dc2626' };
+  const ecol = { spawns: '#2e8b57', chain: '#6b4fd8', yields: '#c77700', asks: '#b42318' };
   const svgEdges = edges.filter(([a, b]) => pos[a] && pos[b]).map(([a, b, k]) => {
     const p = pos[a], q = pos[b];
     const x1 = p.x + W, y1 = p.y + H / 2, x2 = q.x, y2 = q.y + H / 2;
@@ -689,7 +689,7 @@ function drawGraph(body, keepView) {
   const svgNodes = nodes.map((n) => {
     const p = pos[n.id]; const c = NODE_COLORS[n.type];
     return `<g transform="translate(${p.x},${p.y})"><title>${esc(n.title)}\n${esc(n.sub)}</title>
-      <rect width="${W}" height="${H}" rx="5" fill="var(--panel)" stroke="var(--line2)"/><rect width="4" height="${H}" rx="1" fill="${c}"/>
+      <rect x="3" y="3" width="${W}" height="${H}" rx="6" fill="var(--shc)"/><rect width="${W}" height="${H}" rx="6" fill="var(--panel)" stroke="var(--bc)" stroke-width="1.5"/><rect width="4" height="${H}" rx="1" fill="${c}"/>
       <text x="12" y="20" font-size="10" font-weight="700" fill="${c}" style="text-transform:uppercase">${esc(n.type)}</text>
       <text x="12" y="36" font-size="12" font-weight="600" fill="var(--text)">${esc(clip(n.title, 28))}</text>
       <text x="12" y="52" font-size="11" fill="var(--muted)">${esc(clip(n.sub, 32))}</text></g>`;
