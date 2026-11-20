@@ -58,16 +58,16 @@ func (e *Engine) Run(id string) error {
 // restart the step session compactly instead of resending a huge history.
 type actionLog []string
 
-func (l *actionLog) add(call llm.ToolCall, out toolOutcome) {
+func (l *actionLog) add(call llm.ToolCall, out toolOutcome, max int) {
 	args := string(call.Args)
 	var m map[string]any
 	if json.Unmarshal(call.Args, &m) == nil {
 		delete(m, "content") // never keep full file bodies in the log
 		if v, ok := m["new_text"].(string); ok {
-			m["new_text"] = clip(v, 80)
+			m["new_text"] = clip(v, max/4)
 		}
 		if v, ok := m["old_text"].(string); ok {
-			m["old_text"] = clip(v, 80)
+			m["old_text"] = clip(v, max/4)
 		}
 		b, _ := json.Marshal(m)
 		args = string(b)
@@ -76,8 +76,8 @@ func (l *actionLog) add(call llm.ToolCall, out toolOutcome) {
 	if out.isError {
 		status = "error"
 	}
-	*l = append(*l, fmt.Sprintf("%s(%s) -> %s: %s", call.Name, clip(args, 200), status,
-		clip(strings.ReplaceAll(out.content, "\n", " ⏎ "), 240)))
+	*l = append(*l, fmt.Sprintf("%s(%s) -> %s: %s", call.Name, clip(args, max/2), status,
+		clip(strings.ReplaceAll(out.content, "\n", " ⏎ "), max/2)))
 }
 
 func (e *Engine) runStep(ctx context.Context, t *store.Task, idx int) (paused bool, err error) {
@@ -101,8 +101,8 @@ func (e *Engine) runStep(ctx context.Context, t *store.Task, idx int) (paused bo
 	}
 	tree := ""
 	if ws != "" {
-		files, _ := codeidx.Scan(ws, 4000)
-		tree = codeidx.Tree(files, 40)
+		files, _ := codeidx.Scan(ws, st.Limits.CodeScanMaxFiles)
+		tree = codeidx.Tree(files, st.Limits.StepTreeLines)
 	}
 	notes := takeNotes(e, t.ID)
 	base := e.stepPrompt(t, proj, idx, notes, tree)
@@ -136,15 +136,15 @@ func (e *Engine) runStep(ctx context.Context, t *store.Task, idx int) (paused bo
 		if prof := e.chain(store.RoleWorker, opts.override, rotate); len(prof) > 0 {
 			cw := prof[0].ContextWindow
 			if cw <= 0 {
-				cw = 128000
+				cw = st.Limits.DefaultContextWindow
 			}
-			if est := llm.EstimateRequest(req); est > cw*st.CompactAtPct/100 && len(msgs) > 2 {
+			if est := llm.EstimateRequest(prof[0], req); est > cw*st.CompactAtPct/100 && len(msgs) > 2 {
 				fresh, _ := e.Store.Task(t.ID)
 				msgs = []llm.Message{{Role: "user", Text: e.stepPrompt(fresh, proj, idx, notes, tree) +
 					"\n\n## Progress so far in THIS step (session restarted to save tokens)\n- " +
 					strings.Join(log, "\n- ") + "\n\nContinue from here; re-read only what you still need."}}
 				req.Messages = msgs
-				e.emit(t.ID, "info", step.ID, "context compacted", fmt.Sprintf("≈%d tokens → ≈%d", est, llm.EstimateRequest(req)), nil)
+				e.emit(t.ID, "info", step.ID, "context compacted", fmt.Sprintf("≈%d tokens → ≈%d", est, llm.EstimateRequest(prof[0], req)), nil)
 			}
 		}
 
@@ -184,11 +184,11 @@ func (e *Engine) runStep(ctx context.Context, t *store.Task, idx int) (paused bo
 		var summary, question string
 		for _, call := range resp.ToolCalls {
 			out := tc.exec(call)
-			log.add(call, out)
+			log.add(call, out, st.Limits.SummaryChars)
 			if call.Name != "run_command" { // run_command emits its own event
-				e.emit(t.ID, "tool", step.ID, call.Name+" "+toolLabel(call), excerpt(out.content, 1500), map[string]any{"error": out.isError})
+				e.emit(t.ID, "tool", step.ID, call.Name+" "+toolLabel(call, st.Limits.SummaryChars), excerpt(out.content, st.Limits.EventDetailChars), map[string]any{"error": out.isError})
 			} else {
-				e.emit(t.ID, "tool", step.ID, "output", excerpt(out.content, 3000), map[string]any{"error": out.isError})
+				e.emit(t.ID, "tool", step.ID, "output", excerpt(out.content, st.Limits.EventDetailChars), map[string]any{"error": out.isError})
 			}
 			results = append(results, llm.ToolResult{CallID: call.ID, Name: call.Name, Content: out.content, IsError: out.isError})
 			if out.done {
@@ -265,12 +265,12 @@ func takeNotes(e *Engine, id string) []store.Note {
 	return out
 }
 
-func toolLabel(c llm.ToolCall) string {
+func toolLabel(c llm.ToolCall, max int) string {
 	var m map[string]any
 	_ = json.Unmarshal(c.Args, &m)
 	for _, k := range []string{"path", "query", "command", "note", "question"} {
 		if v, ok := m[k].(string); ok && v != "" {
-			return clip(v, 120)
+			return clip(v, max)
 		}
 	}
 	return ""

@@ -67,7 +67,7 @@ function editMCP(list, i, save) {
         <label class="chk"><input type="checkbox" id="mc-r-worker" ${m.roles.includes('worker') ? 'checked' : ''}> Work agent</label>
         <label class="chk"><input type="checkbox" id="mc-r-chat" ${m.roles.includes('chat') ? 'checked' : ''}> Chat assistant</label></div>
       <div class="row" style="gap:18px;align-items:flex-end"><label class="chk">${sw('mc-appr', m.approval)} Ask me before every call</label><label class="chk">${sw('mc-en', m.enabled)} Enabled</label>
-        <label class="f" style="width:150px">Timeout (s)<input id="mc-to" type="number" value="${m.timeout_sec || ''}" placeholder="60"></label></div>
+        <label class="f" style="width:150px">Timeout (s)<input id="mc-to" type="number" value="${m.timeout_sec || ''}" placeholder="default: ${S.cfg ? S.cfg.settings.limits.mcp_call_timeout_sec : ''}"></label></div>
       ${known.length ? `<div><div class="section-title">Tool allowlist <span class="faint">(none checked = all ${known.length} tools)</span></div>
         <div class="col" style="max-height:220px;overflow:auto;gap:4px">${known.map((t) => `<label class="chk small"><input type="checkbox" data-tool="${esc(t.name)}" ${m.tools.includes(t.name) ? 'checked' : ''}>
           <b class="mono">${esc(t.name)}</b><span class="muted ellipsis">${esc(t.description || '')}</span></label>`).join('')}</div></div>`

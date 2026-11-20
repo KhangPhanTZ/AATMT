@@ -89,7 +89,7 @@ func (e *Engine) Report(t *store.Task) string {
 		for _, c := range live {
 			fmt.Fprintf(&b, "### `%s` (%s)\n\n", c.Path, c.Op)
 			if d, err := e.FileDiff(t, c.Path); err == nil && d != "" {
-				b.WriteString("```diff\n" + clip(d, 40000) + "\n```\n\n")
+				b.WriteString("```diff\n" + clip(d, e.lim().DiffMaxChars) + "\n```\n\n")
 			}
 		}
 	}
@@ -98,7 +98,7 @@ func (e *Engine) Report(t *store.Task) string {
 		b.WriteString("## Timeline\n\n")
 		for _, ev := range evs {
 			if ev.Type == "stage" || ev.Type == "step" || ev.Type == "approval" || ev.Type == "question" || ev.Type == "note" || ev.Type == "error" {
-				fmt.Fprintf(&b, "- `%s` **%s** %s %s\n", ev.At.Format("01-02 15:04"), ev.Type, ev.Title, excerpt(strings.ReplaceAll(ev.Detail, "\n", " "), 200))
+				fmt.Fprintf(&b, "- `%s` **%s** %s %s\n", ev.At.Format("01-02 15:04"), ev.Type, ev.Title, excerpt(strings.ReplaceAll(ev.Detail, "\n", " "), e.lim().SummaryChars))
 			}
 		}
 	}

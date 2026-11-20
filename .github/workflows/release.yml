@@ -1,0 +1,41 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v1.0.0)"
+        required: true
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go vet ./... && go test -race ./...
+      - name: Install NSIS (Windows installer builder)
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Build artifacts
+        run: ./build.sh "$TAG"
+      - name: Publish GitHub release
+        run: |
+          notes=".github/release-notes/${TAG}.md"
+          [ -f "$notes" ] || notes=""
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          elif [ -n "$notes" ]; then
+            gh release create "$TAG" dist/* --title "AATMT $TAG" --notes-file "$notes"
+          else
+            gh release create "$TAG" dist/* --title "AATMT $TAG" --generate-notes
+          fi

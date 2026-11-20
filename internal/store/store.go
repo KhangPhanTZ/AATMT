@@ -189,6 +189,7 @@ func fillSettingDefaults(st *Settings) {
 	if st.RetryAttempts <= 0 {
 		st.RetryAttempts = d.RetryAttempts
 	}
+	fillLimits(&st.Limits)
 }
 
 func (s *Store) saveConfigLocked() error {
@@ -240,8 +241,8 @@ func (s *Store) AddProfileUsage(id string, u Usage) {
 	d := s.cfg.Daily[day]
 	d.Add(u)
 	s.cfg.Daily[day] = d
-	if len(s.cfg.Daily) > 90 {
-		cut := time.Now().UTC().AddDate(0, 0, -90).Format("2006-01-02")
+	if keep := s.cfg.Settings.Limits.UsageHistoryDays; len(s.cfg.Daily) > keep {
+		cut := time.Now().UTC().AddDate(0, 0, -keep).Format("2006-01-02")
 		for k := range s.cfg.Daily {
 			if k < cut {
 				delete(s.cfg.Daily, k)

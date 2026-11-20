@@ -36,13 +36,8 @@ type File struct {
 	Size int64
 }
 
-const maxIndexedSize = 256 * 1024
-
-// Scan lists text-like source files under root (bounded by maxFiles).
+// Scan lists text-like source files under root (bounded by maxFiles, from Settings → Limits).
 func Scan(root string, maxFiles int) ([]File, error) {
-	if maxFiles <= 0 {
-		maxFiles = 8000
-	}
 	var out []File
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -74,9 +69,6 @@ func Scan(root string, maxFiles int) ([]File, error) {
 
 // Tree renders a compact indented tree, collapsing large directories.
 func Tree(files []File, maxLines int) string {
-	if maxLines <= 0 {
-		maxLines = 300
-	}
 	type dir struct {
 		files []string
 		dirs  map[string]*dir
@@ -209,7 +201,7 @@ type Hit struct {
 
 // Rank scores files by term matches in path (heavy) and content (light, with
 // a bonus for each distinct term) and returns the best ones.
-func Rank(root string, files []File, terms []string, limit int) []Hit {
+func Rank(root string, files []File, terms []string, limit int, maxFileBytes int64) []Hit {
 	if len(terms) == 0 {
 		return nil
 	}
@@ -227,7 +219,7 @@ func Rank(root string, files []File, terms []string, limit int) []Hit {
 			}
 		}
 		var lines []int
-		if f.Size <= maxIndexedSize {
+		if f.Size <= maxFileBytes {
 			data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f.Path)))
 			if err == nil && !bytes.Contains(data[:min(len(data), 512)], []byte{0}) {
 				low := bytes.ToLower(data)

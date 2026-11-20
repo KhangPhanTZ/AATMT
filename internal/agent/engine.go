@@ -167,7 +167,7 @@ func (e *Engine) emit(id, typ, step, title, detail string, data map[string]any) 
 	e.Store.Emit(store.Event{TaskID: id, Type: typ, Step: step, Title: title, Detail: detail, Data: data})
 	switch typ {
 	case "stage", "error", "approval", "question", "step":
-		log.Printf("task %s %s: %s %s", id, typ, title, excerpt(strings.ReplaceAll(detail, "\n", " "), 160))
+		log.Printf("task %s %s: %s %s", id, typ, title, excerpt(strings.ReplaceAll(detail, "\n", " "), e.lim().SummaryChars))
 	}
 }
 
@@ -311,7 +311,7 @@ func (e *Engine) call(ctx context.Context, o callOpts, req llm.Request) (*llm.Re
 	if st.RecordLLM {
 		e.record(o, req, resp, resp.Profile, nil)
 	}
-	e.emit(o.taskID, "llm", o.step, o.role+" · "+resp.Profile.Name, excerpt(resp.Text, 600), map[string]any{
+	e.emit(o.taskID, "llm", o.step, o.role+" · "+resp.Profile.Name, excerpt(resp.Text, st.Limits.EventDetailChars), map[string]any{
 		"profile": resp.Profile.Name, "model": resp.Profile.Model, "input": u.Input, "output": u.Output,
 		"cache_read": u.CacheRead, "cache_write": u.CacheWrite, "ms": resp.Latency.Milliseconds(),
 		"tools": len(resp.ToolCalls), "stop": resp.StopReason,
@@ -325,6 +325,7 @@ func (e *Engine) call(ctx context.Context, o callOpts, req llm.Request) (*llm.Re
 }
 
 func (e *Engine) record(o callOpts, req llm.Request, resp *llm.Response, p *store.Profile, callErr error) {
+	max := e.lim().LLMRecordMaxChars
 	r := store.LLMRecord{TaskID: o.taskID, Role: o.role, Step: o.step, Messages: len(req.Messages),
 		Tools: len(req.Tools), SystemLen: len(req.System)}
 	if p != nil {
@@ -335,21 +336,21 @@ func (e *Engine) record(o callOpts, req llm.Request, resp *llm.Response, p *stor
 		var b strings.Builder
 		b.WriteString(m.Text)
 		for _, tr := range m.ToolResults {
-			fmt.Fprintf(&b, "\n[tool_result %s] %s", tr.Name, excerpt(tr.Content, 1500))
+			fmt.Fprintf(&b, "\n[tool_result %s] %s", tr.Name, excerpt(tr.Content, max/4))
 		}
 		if len(m.Images) > 0 {
 			fmt.Fprintf(&b, "\n[%d image(s)]", len(m.Images))
 		}
-		r.Request = excerpt(b.String(), 6000)
+		r.Request = excerpt(b.String(), max)
 	}
 	if resp != nil {
 		r.Usage, r.Ms = resp.Usage, resp.Latency.Milliseconds()
 		var b strings.Builder
 		b.WriteString(resp.Text)
 		for _, c := range resp.ToolCalls {
-			fmt.Fprintf(&b, "\n→ %s(%s)", c.Name, excerpt(string(c.Args), 1500))
+			fmt.Fprintf(&b, "\n→ %s(%s)", c.Name, excerpt(string(c.Args), max/4))
 		}
-		r.Response = excerpt(b.String(), 8000)
+		r.Response = excerpt(b.String(), max)
 	}
 	if callErr != nil {
 		r.Error = callErr.Error()
@@ -376,6 +377,9 @@ func (e *Engine) projectLock(ctx context.Context, projectID string) (func(), err
 		return nil, context.Cause(ctx)
 	}
 }
+
+// lim returns the configured limits (Settings → Limits).
+func (e *Engine) lim() store.Limits { return e.Store.Config().Settings.Limits }
 
 // override picks the task's model override, else the project's default.
 func (e *Engine) override(t *store.Task, role string) string {

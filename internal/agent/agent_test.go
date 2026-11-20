@@ -19,7 +19,7 @@ import (
 func TestUnifiedDiff(t *testing.T) {
 	a := "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n"
 	b := "one\ntwo\nTHREE\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\n"
-	d := UnifiedDiff(a, b, "x.txt", 1)
+	d := UnifiedDiff(a, b, "x.txt", 1, store.DefaultLimits().DiffMaxCells)
 	for _, want := range []string{"-three", "+THREE", "+eleven", "@@ -2,3 +2,3 @@"} {
 		if !strings.Contains(d, want) {
 			t.Fatalf("diff missing %q:\n%s", want, d)
@@ -28,10 +28,10 @@ func TestUnifiedDiff(t *testing.T) {
 	if strings.Count(d, "@@ ") != 2 {
 		t.Fatalf("expected two hunks:\n%s", d)
 	}
-	if UnifiedDiff(a, a, "x", 3) != "" {
+	if UnifiedDiff(a, a, "x", 3, store.DefaultLimits().DiffMaxCells) != "" {
 		t.Fatal("identical inputs should give an empty diff")
 	}
-	if d := UnifiedDiff("", "new\n", "n.txt", 3); !strings.Contains(d, "+new") {
+	if d := UnifiedDiff("", "new\n", "n.txt", 3, store.DefaultLimits().DiffMaxCells); !strings.Contains(d, "+new") {
 		t.Fatalf("create diff: %s", d)
 	}
 }

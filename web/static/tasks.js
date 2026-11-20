@@ -344,7 +344,7 @@ async function taskAction(a) {
   }
   if (a === 'analyze') {
     const est = await act(() => api('GET', `/tasks/${id}/estimate`));
-    if (est) toast(`≈ ${fmtK(est.analysis_tokens + est.vision_tokens)} input tokens`);
+    if (est) toast(`Estimate ≈ ${fmtK(est.analysis_tokens)} analysis tokens${est.images_to_transcribe ? ` + ≈${fmtK(est.vision_tokens)} for ${est.images_to_transcribe} screenshot(s)` : ''} · ${est.chars_per_token ? `measured ${est.chars_per_token.toFixed(2)} chars/token` : 'not measured yet: 4 chars/token'}`);
     await act(() => api('POST', `/tasks/${id}/analyze`));
   }
   if (a === 'run' || a === 'pause') await act(() => api('POST', `/tasks/${id}/${a}`));

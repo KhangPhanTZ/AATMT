@@ -16,16 +16,9 @@ import (
 	"github.com/khangphantz/aatmt/internal/store"
 )
 
-const (
-	maxImageBytes = 20 << 20
-	maxZipBytes   = 200 << 20
-	maxUnzipBytes = 500 << 20
-	maxUnzipFiles = 20000
-)
-
 // prepareSource materialises a source into a workspace. Git and zip sources
 // are placed under dir/workspace; local folders are used in place.
-func prepareSource(ctx context.Context, dir string, src store.Source, zipFile *multipart.FileHeader) (store.Source, string, error) {
+func prepareSource(ctx context.Context, dir string, src store.Source, zipFile *multipart.FileHeader, l store.Limits) (store.Source, string, error) {
 	if zipFile != nil {
 		src.Kind = "upload"
 	}
@@ -67,7 +60,7 @@ func prepareSource(ctx context.Context, dir string, src store.Source, zipFile *m
 			args = append(args, "--branch", ref)
 		}
 		args = append(args, "--", u, ws)
-		cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		cctx, cancel := context.WithTimeout(ctx, time.Duration(l.GitTimeoutMin)*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(cctx, "git", args...)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
@@ -81,7 +74,7 @@ func prepareSource(ctx context.Context, dir string, src store.Source, zipFile *m
 			return src, "", errors.New("no zip file uploaded")
 		}
 		_ = os.RemoveAll(ws)
-		if err := unzip(zipFile, ws); err != nil {
+		if err := unzip(zipFile, ws, l); err != nil {
 			return src, "", err
 		}
 		root := ws
@@ -140,9 +133,10 @@ func gitInfo(ws string) map[string]any {
 	}
 }
 
-func unzip(fh *multipart.FileHeader, dst string) error {
-	if fh.Size > maxZipBytes {
-		return errors.New("zip larger than 200 MB")
+func unzip(fh *multipart.FileHeader, dst string, l store.Limits) error {
+	maxZip, maxOut := int64(l.MaxUploadMB)<<20, int64(l.MaxUnzipMB)<<20
+	if fh.Size > maxZip {
+		return fmt.Errorf("zip larger than %d MB (Settings → Limits → max_upload_mb)", l.MaxUploadMB)
 	}
 	f, err := fh.Open()
 	if err != nil {
@@ -157,8 +151,8 @@ func unzip(fh *multipart.FileHeader, dst string) error {
 	if err != nil {
 		return fmt.Errorf("invalid zip: %w", err)
 	}
-	if len(zr.File) > maxUnzipFiles {
-		return errors.New("zip has too many files")
+	if len(zr.File) > l.MaxUnzipFiles {
+		return fmt.Errorf("zip has more than %d files (Settings → Limits → max_unzip_files)", l.MaxUnzipFiles)
 	}
 	var total int64
 	root := filepath.Clean(dst) + string(filepath.Separator)
@@ -188,15 +182,15 @@ func unzip(fh *multipart.FileHeader, dst string) error {
 			rc.Close()
 			return err
 		}
-		n, err := io.Copy(out, io.LimitReader(rc, maxUnzipBytes-total+1))
+		n, err := io.Copy(out, io.LimitReader(rc, maxOut-total+1))
 		rc.Close()
 		out.Close()
 		if err != nil {
 			return err
 		}
 		total += n
-		if total > maxUnzipBytes {
-			return errors.New("zip expands beyond 500 MB")
+		if total > maxOut {
+			return fmt.Errorf("zip expands beyond %d MB (Settings → Limits → max_unzip_mb)", l.MaxUnzipMB)
 		}
 	}
 	return nil

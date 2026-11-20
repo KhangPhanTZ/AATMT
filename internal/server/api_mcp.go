@@ -72,7 +72,7 @@ var mcpNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,30}$`)
 
 func (s *Server) putMCP(w http.ResponseWriter, r *http.Request) {
 	var in []*store.MCPServer
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -132,7 +132,8 @@ func (s *Server) testMCP(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	for _, m := range s.Store.Config().MCP {
 		if m.ID == id {
-			ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+			l := s.lim()
+			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(l.MCPConnectTimeoutSec+l.MCPCallTimeoutSec)*time.Second)
 			defer cancel()
 			writeJSON(w, 200, s.Engine.MCP.Refresh(ctx, *m))
 			return

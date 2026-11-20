@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/khangphantz/aatmt/internal/store"
+	"github.com/khangphantz/aatmt/internal/version"
 )
 
 // publicOnly refuses connections to loopback / private / link-local addresses,
@@ -33,21 +34,28 @@ func publicOnly(network, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-var webClient = &http.Client{
-	Timeout: 25 * time.Second,
-	Transport: &http.Transport{
-		Proxy:       http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{Timeout: 10 * time.Second, Control: publicOnly}).DialContext,
-	},
-	CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) > 5 {
-			return errors.New("too many redirects")
-		}
-		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-			return errors.New("redirect to a non-http URL")
-		}
-		return nil
-	},
+func webClient(l store.Limits) *http.Client {
+	t := time.Duration(l.WebFetchTimeoutSec) * time.Second
+	return &http.Client{
+		Timeout: t,
+		Transport: &http.Transport{
+			Proxy:       http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{Timeout: t, Control: publicOnly}).DialContext,
+		},
+		CheckRedirect: checkRedirect,
+	}
+}
+
+const maxRedirects = 5 // standard browser-like redirect budget; not a tunable limit
+
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > maxRedirects {
+		return errors.New("too many redirects")
+	}
+	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+		return errors.New("redirect to a non-http URL")
+	}
+	return nil
 }
 
 var (
@@ -68,7 +76,7 @@ func htmlToText(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func webFetch(ctx context.Context, raw string) (string, error) {
+func webFetch(ctx context.Context, raw string, l store.Limits) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", errors.New("web_fetch needs an absolute http(s) URL")
@@ -77,13 +85,13 @@ func webFetch(ctx context.Context, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "AATMT/1.0 (+task-agent)")
-	res, err := webClient.Do(req)
+	req.Header.Set("User-Agent", "AATMT/"+version.Version+" (+task-agent)")
+	res, err := webClient(l).Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer res.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+	body, err := io.ReadAll(io.LimitReader(res.Body, int64(l.WebFetchMaxKB)<<10))
 	if err != nil {
 		return "", err
 	}
@@ -106,12 +114,13 @@ func webSearch(ctx context.Context, st store.Settings, q string) (string, error)
 	if key == "" {
 		return "", errors.New("web search API key is not configured")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	l := st.Limits
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(l.WebFetchTimeoutSec)*time.Second)
 	defer cancel()
 	var b strings.Builder
 	switch st.WebSearch {
 	case "tavily":
-		payload, _ := json.Marshal(map[string]any{"query": q, "max_results": 6})
+		payload, _ := json.Marshal(map[string]any{"query": q, "max_results": l.WebSearchResults})
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.tavily.com/search", strings.NewReader(string(payload)))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+key)
@@ -132,10 +141,10 @@ func webSearch(ctx context.Context, st store.Settings, q string) (string, error)
 			return "", err
 		}
 		for _, r := range out.Results {
-			fmt.Fprintf(&b, "- %s\n  %s\n  %s\n", r.Title, r.URL, excerpt(r.Content, 400))
+			fmt.Fprintf(&b, "- %s\n  %s\n  %s\n", r.Title, r.URL, excerpt(r.Content, l.SummaryChars))
 		}
 	case "brave":
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.search.brave.com/res/v1/web/search?count=6&q="+url.QueryEscape(q), nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?count=%d&q=%s", l.WebSearchResults, url.QueryEscape(q)), nil)
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-Subscription-Token", key)
 		res, err := http.DefaultClient.Do(req)

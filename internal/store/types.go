@@ -76,6 +76,9 @@ type Profile struct {
 	// Optional price per 1M tokens, for cost display only.
 	PriceIn  float64 `json:"price_in,omitempty"`
 	PriceOut float64 `json:"price_out,omitempty"`
+	// Cache prices; when unset, cached tokens are costed at PriceIn (no assumed discount).
+	PriceCacheRead  float64 `json:"price_cache_read,omitempty"`
+	PriceCacheWrite float64 `json:"price_cache_write,omitempty"`
 }
 
 // Roles maps each agent role to an ordered failover chain of profile ids.
@@ -125,7 +128,8 @@ type Settings struct {
 	WebSearch          string   `json:"web_search"`           // "" (off) | "tavily" | "brave"
 	WebSearchKey       string   `json:"web_search_key"`       // literal or env:NAME
 	WebFetch           bool     `json:"web_fetch"`            // allow the agent to fetch public URLs
-	PublicURL          string   `json:"public_url"`           // used in notification links
+	PublicURL          string   `json:"public_url"`           // used in notification links ("" = the address the server listens on)
+	Limits             Limits   `json:"limits"`
 }
 
 func DefaultSettings() Settings {
@@ -144,7 +148,7 @@ func DefaultSettings() Settings {
 		UntrustedBoundary:  true,
 		RecordLLM:          true,
 		RetryAttempts:      3,
-		PublicURL:          "http://127.0.0.1:8787",
+		Limits:             DefaultLimits(),
 	}
 }
 

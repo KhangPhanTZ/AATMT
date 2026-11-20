@@ -15,8 +15,10 @@ import (
 )
 
 type Image struct {
-	Mime string
-	Data []byte
+	Mime   string
+	Data   []byte
+	Width  int // pixels, for token estimates
+	Height int
 }
 
 type ToolCall struct {
@@ -95,44 +97,4 @@ func (e *HTTPError) Error() string {
 		b = b[:400] + "…"
 	}
 	return fmt.Sprintf("HTTP %d: %s", e.Status, b)
-}
-
-// EstimateTokens is a cheap, dependency-free token estimate (~4 chars/token for
-// Latin text and code, ~1.5 for CJK). Good enough for budgets and compaction.
-func EstimateTokens(s string) int {
-	n, wide := 0, 0
-	for _, r := range s {
-		n++
-		if r >= 0x2E80 {
-			wide++
-		}
-	}
-	return (n-wide)/4 + wide*2/3 + 1
-}
-
-func EstimateRequest(r Request) int {
-	t := EstimateTokens(r.System)
-	for _, m := range r.Messages {
-		t += EstimateTokens(m.Text) + 4
-		for _, c := range m.ToolCalls {
-			t += EstimateTokens(string(c.Args)) + 8
-		}
-		for _, tr := range m.ToolResults {
-			t += EstimateTokens(tr.Content) + 8
-		}
-		t += len(m.Images) * 1600
-	}
-	for _, tl := range r.Tools {
-		b, _ := json.Marshal(tl.Schema)
-		t += EstimateTokens(tl.Description) + EstimateTokens(string(b))
-	}
-	return t
-}
-
-func cost(p *store.Profile, u store.Usage) float64 {
-	if p == nil {
-		return 0
-	}
-	in := float64(u.Input) + float64(u.CacheWrite)*1.25 + float64(u.CacheRead)*0.1
-	return (in*p.PriceIn + float64(u.Output)*p.PriceOut) / 1e6
 }

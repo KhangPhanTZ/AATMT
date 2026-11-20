@@ -72,7 +72,8 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	var days []day
 	var week store.Usage
-	for i := 13; i >= 0; i-- {
+	l := cfg.Settings.Limits
+	for i := l.DashboardDays - 1; i >= 0; i-- {
 		d := time.Now().UTC().AddDate(0, 0, -i).Format("2006-01-02")
 		u := cfg.Daily[d]
 		days = append(days, day{d, u})
@@ -101,7 +102,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		provs = append(provs, pv)
 	}
-	recent := s.Store.Recent(40)
+	recent := s.Store.Recent(l.DashboardItems)
 	type ev struct {
 		store.Event
 		TaskTitle string `json:"task_title"`
@@ -124,7 +125,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 // ---------- audit / records / logs ----------
 
 func (s *Server) approvalRecords(w http.ResponseWriter, r *http.Request) {
-	recs := s.Store.Approvals(1000)
+	recs := s.Store.Approvals(s.lim().ListMaxItems)
 	// newest first
 	for i, j := 0, len(recs)-1; i < j; i, j = i+1, j-1 {
 		recs[i], recs[j] = recs[j], recs[i]
@@ -141,13 +142,14 @@ func (s *Server) approvalRecords(w http.ResponseWriter, r *http.Request) {
 func (s *Server) llmRecords(w http.ResponseWriter, r *http.Request) {
 	var all []store.LLMRecord
 	titles := map[string]string{}
+	max := s.lim().ListMaxItems
 	for _, t := range s.Store.Tasks() {
 		titles[t.ID] = t.Title
-		all = append(all, s.Store.LLMRecords(t.ID, 200)...)
+		all = append(all, s.Store.LLMRecords(t.ID, max)...)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].At.After(all[j].At) })
-	if len(all) > 400 {
-		all = all[:400]
+	if len(all) > max {
+		all = all[:max]
 	}
 	type rec struct {
 		store.LLMRecord
@@ -227,7 +229,7 @@ func (s *Server) putAgent(w http.ResponseWriter, r *http.Request) {
 		Prompt *string   `json:"prompt"`
 		Chain  *[]string `json:"chain"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -260,7 +262,7 @@ func (s *Server) putAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putSkills(w http.ResponseWriter, r *http.Request) {
 	var in []*store.Skill
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -283,7 +285,7 @@ func (s *Server) putSkills(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 	var in []*store.Rule
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -320,7 +322,7 @@ func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putWebhooks(w http.ResponseWriter, r *http.Request) {
 	var in []*store.Webhook
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -342,13 +344,13 @@ func (s *Server) putWebhooks(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request) {
 	var h store.Webhook
-	if err := readJSON(r, &h); err != nil {
+	if err := s.readJSON(r, &h); err != nil {
 		writeErr(w, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.lim().WebhookTimeoutSec)*time.Second)
 	defer cancel()
-	err := notify.Send(ctx, &h, "[TEST] AATMT notification works", strings.TrimRight(s.Store.Config().Settings.PublicURL, "/"))
+	err := notify.Send(ctx, &h, "[TEST] AATMT notification works", notify.PublicURL(s.Store.Config().Settings.PublicURL))
 	if err != nil {
 		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
 		return
@@ -358,7 +360,7 @@ func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putTemplates(w http.ResponseWriter, r *http.Request) {
 	var in []*store.Template
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -413,7 +415,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			}
 			out = append(out, hit{"task", t.ID, t.Title, sub})
 		}
-		if len(out) >= 30 {
+		if len(out) >= s.lim().SearchMaxResults {
 			break
 		}
 	}

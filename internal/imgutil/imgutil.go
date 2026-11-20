@@ -12,33 +12,31 @@ import (
 	"image/png"
 )
 
-const MaxEdge = 1568
-
-// Normalize decodes PNG/JPEG/GIF, downsizes so the longest edge is <= MaxEdge
+// Normalize decodes PNG/JPEG/GIF, downsizes so the longest edge is <= maxEdge
 // and re-encodes (PNG stays PNG to keep text crisp). Unknown formats are
-// returned unchanged.
-func Normalize(data []byte, mime string) (out []byte, outMime string, w, h int) {
+// returned unchanged. maxEdge and jpegQuality come from Settings → Limits.
+func Normalize(data []byte, mime string, maxEdge, jpegQuality int) (out []byte, outMime string, w, h int) {
 	img, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return data, mime, 0, 0
 	}
 	b := img.Bounds()
 	w, h = b.Dx(), b.Dy()
-	if w <= MaxEdge && h <= MaxEdge && (format == "png" || format == "jpeg") {
+	if w <= maxEdge && h <= maxEdge && (format == "png" || format == "jpeg") {
 		return data, "image/" + format, w, h
 	}
 	nw, nh := w, h
-	if w > MaxEdge || h > MaxEdge {
+	if w > maxEdge || h > maxEdge {
 		if w >= h {
-			nw, nh = MaxEdge, h*MaxEdge/w
+			nw, nh = maxEdge, h*maxEdge/w
 		} else {
-			nw, nh = w*MaxEdge/h, MaxEdge
+			nw, nh = w*maxEdge/h, maxEdge
 		}
 	}
 	dst := resize(img, nw, nh)
 	var buf bytes.Buffer
 	if format == "jpeg" {
-		_ = jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 88})
+		_ = jpeg.Encode(&buf, dst, &jpeg.Options{Quality: jpegQuality})
 		return buf.Bytes(), "image/jpeg", nw, nh
 	}
 	_ = png.Encode(&buf, dst)

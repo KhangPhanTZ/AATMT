@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -82,7 +83,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var zipFile *multipart.FileHeader
 	name, desc := "", ""
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
+		if err := s.parseMultipart(w, r); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -99,7 +100,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 			Description string       `json:"description"`
 			Source      store.Source `json:"source"`
 		}
-		if err := readJSON(r, &in); err != nil {
+		if err := s.readJSON(r, &in); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -140,7 +141,7 @@ func (s *Server) patchProject(w http.ResponseWriter, r *http.Request) {
 		Archived    *bool              `json:"archived"`
 		Knowledge   *[]store.Knowledge `json:"knowledge"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -222,7 +223,7 @@ func (s *Server) syncProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, errors.New("workspace is not a git repository"))
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.lim().GitTimeoutMin)*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", p.Workspace, "pull", "--ff-only")
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
@@ -241,7 +242,7 @@ func (s *Server) projectFiles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, []codeidx.File{})
 		return
 	}
-	files, _ := codeidx.Scan(p.Workspace, 8000)
+	files, _ := codeidx.Scan(p.Workspace, s.lim().CodeScanMaxFiles)
 	if files == nil {
 		files = []codeidx.File{}
 	}
@@ -272,8 +273,8 @@ func (s *Server) projectFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, errors.New("file not found"))
 		return
 	}
-	if st.Size() > 1<<20 {
-		writeErr(w, errors.New("file larger than 1 MB"))
+	if kb := s.lim().FileViewMaxKB; st.Size() > int64(kb)<<10 {
+		writeErr(w, fmt.Errorf("file larger than %d KB (Settings → Limits → file_view_max_kb)", kb))
 		return
 	}
 	data, err := os.ReadFile(full)
@@ -289,7 +290,7 @@ func (s *Server) projectChat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text string `json:"text"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}

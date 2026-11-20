@@ -91,6 +91,10 @@ func (m *Manager) server(id string) (store.MCPServer, bool) {
 
 // get returns a connected client with a fresh-enough tool list.
 func (m *Manager) get(ctx context.Context, srv store.MCPServer, force bool) (*conn, error) {
+	l := m.st.Config().Settings.Limits
+	if srv.TimeoutSec <= 0 {
+		srv.TimeoutSec = l.MCPCallTimeoutSec
+	}
 	key := fingerprint(srv)
 	m.mu.Lock()
 	c := m.conns[srv.ID]
@@ -99,7 +103,7 @@ func (m *Manager) get(ctx context.Context, srv store.MCPServer, force bool) (*co
 		return c, nil
 	}
 	// back off after a recent failure instead of reconnecting on every prompt
-	if c != nil && !force && c.key == key && c.client == nil && time.Since(c.checked) < 30*time.Second {
+	if c != nil && !force && c.key == key && c.client == nil && time.Since(c.checked) < time.Duration(l.MCPRetryAfterSec)*time.Second {
 		m.mu.Unlock()
 		return nil, errors.New(c.err)
 	}
@@ -110,7 +114,7 @@ func (m *Manager) get(ctx context.Context, srv store.MCPServer, force bool) (*co
 	m.mu.Unlock()
 
 	nc := &conn{key: key, checked: time.Now().UTC()}
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, time.Duration(l.MCPConnectTimeoutSec)*time.Second)
 	defer cancel()
 	client, err := Connect(cctx, srv)
 	if err == nil {
@@ -217,6 +221,9 @@ func (m *Manager) Call(ctx context.Context, name string, args json.RawMessage) (
 		c, err := m.get(ctx, srv, attempt > 0)
 		if err != nil {
 			return "", false, err
+		}
+		if srv.TimeoutSec <= 0 {
+			srv.TimeoutSec = m.st.Config().Settings.Limits.MCPCallTimeoutSec
 		}
 		cctx, cancel := context.WithTimeout(ctx, timeout(srv))
 		text, isErr, err := c.client.CallTool(cctx, tool, args)

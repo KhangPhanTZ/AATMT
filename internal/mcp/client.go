@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/khangphantz/aatmt/internal/store"
+	"github.com/khangphantz/aatmt/internal/version"
 )
 
 const protocolVersion = "2025-03-26"
@@ -90,7 +91,7 @@ func Connect(ctx context.Context, cfg store.MCPServer) (*Client, error) {
 	raw, err := c.call(ctx, "initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "aatmt", "version": "1.0"},
+		"clientInfo":      map[string]any{"name": "aatmt", "version": version.Version},
 	})
 	if err != nil {
 		_ = c.t.close()
@@ -192,7 +193,7 @@ func timeout(cfg store.MCPServer) time.Duration {
 	if cfg.TimeoutSec > 0 {
 		return time.Duration(cfg.TimeoutSec) * time.Second
 	}
-	return 60 * time.Second
+	return time.Duration(store.DefaultLimits().MCPCallTimeoutSec) * time.Second
 }
 
 // ---------------------------------------------------------------- Streamable HTTP
@@ -569,7 +570,7 @@ func newSSE(ctx context.Context, cfg store.MCPServer) (*sseT, error) {
 			return nil, err
 		}
 		s.endpoint = base.ResolveReference(ref).String()
-	case <-time.After(15 * time.Second):
+	case <-time.After(timeout(cfg)):
 		cancel()
 		return nil, errors.New("SSE server did not send an endpoint event")
 	case <-ctx.Done():

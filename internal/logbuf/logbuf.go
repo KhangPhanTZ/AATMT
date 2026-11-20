@@ -52,3 +52,16 @@ func (b *Buffer) Lines() []Line {
 	copy(out, b.lines)
 	return out
 }
+
+// SetMax changes how many lines are kept (Settings → Limits → log_lines).
+func (b *Buffer) SetMax(n int) {
+	if n <= 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.max = n
+	if len(b.lines) > n {
+		b.lines = b.lines[len(b.lines)-n:]
+	}
+}

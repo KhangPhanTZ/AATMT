@@ -63,13 +63,13 @@ func (e *Engine) Chat(kind, id, text string) error {
 			delete(e.chats, key)
 			e.mu.Unlock()
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(e.lim().ChatTimeoutMin)*time.Minute)
 		defer cancel()
 		reply := e.answer(ctx, kind, id, history)
 		switch kind {
 		case "task":
 			_, _ = e.Store.UpdateTask(id, func(t *store.Task) error { t.Chat = append(t.Chat, reply); return nil })
-			e.emit(id, "chat", "", "assistant answered", excerpt(reply.Text, 600), nil)
+			e.emit(id, "chat", "", "assistant answered", excerpt(reply.Text, e.lim().EventDetailChars), nil)
 		case "project":
 			_, _ = e.Store.UpdateProject(id, func(p *store.Project) error { p.Chat = append(p.Chat, reply); return nil })
 		}
@@ -87,6 +87,7 @@ func (e *Engine) ChatBusy(kind, id string) bool {
 func (e *Engine) answer(ctx context.Context, kind, id string, history []store.ChatMsg) store.ChatMsg {
 	cfg := e.Store.Config()
 	st := cfg.Settings
+	l := st.Limits
 	var (
 		system    strings.Builder
 		ws        string
@@ -110,14 +111,14 @@ func (e *Engine) answer(ctx context.Context, kind, id string, history []store.Ch
 			proj, _ = e.Store.Project(t.ProjectID)
 		}
 		system.WriteString(e.taskContext(t))
-		writeProject(&system, proj)
+		writeProject(&system, proj, l)
 	case "project":
 		p, err := e.Store.Project(id)
 		if err != nil {
 			return chatErr(err)
 		}
 		proj, projectID, ws = p, p.ID, p.Workspace
-		writeProject(&system, p)
+		writeProject(&system, p, l)
 		var rows []string
 		for _, t := range e.Store.Tasks() {
 			if t.ProjectID == p.ID {
@@ -125,21 +126,21 @@ func (e *Engine) answer(ctx context.Context, kind, id string, history []store.Ch
 			}
 		}
 		if len(rows) > 0 {
-			if len(rows) > 30 {
-				rows = rows[:30]
+			if len(rows) > l.HistoryTasks {
+				rows = rows[:l.HistoryTasks]
 			}
 			system.WriteString("\n## Tasks on this project\n" + strings.Join(rows, "\n") + "\n")
 		}
 	}
 	if ws != "" {
-		files, _ := codeidx.Scan(ws, 4000)
-		system.WriteString("\n## Workspace tree\n" + codeidx.Tree(files, 60))
+		files, _ := codeidx.Scan(ws, l.CodeScanMaxFiles)
+		system.WriteString("\n## Workspace tree\n" + codeidx.Tree(files, l.StepTreeLines))
 	}
 
 	// replay the recent conversation (strictly alternating, starting with user)
 	var msgs []llm.Message
-	if len(history) > 12 {
-		history = history[len(history)-12:]
+	if len(history) > l.ChatHistory {
+		history = history[len(history)-l.ChatHistory:]
 	}
 	for _, m := range history {
 		role := m.Role
@@ -163,9 +164,9 @@ func (e *Engine) answer(ctx context.Context, kind, id string, history []store.Ch
 	}
 	opts := callOpts{taskID: taskID, projectID: projectID, role: store.RoleChat, step: "chat"}
 	total := 0
-	for turn := 0; turn < 8; turn++ {
-		req := llm.Request{System: system.String(), Messages: msgs, Tools: tools, MaxTokens: 4096}
-		if turn == 7 {
+	for turn := 0; turn < l.ChatMaxTurns; turn++ {
+		req := llm.Request{System: system.String(), Messages: msgs, Tools: tools}
+		if turn == l.ChatMaxTurns-1 {
 			req.Tools = nil // force a final answer
 		}
 		resp, err := e.call(ctx, opts, req)
@@ -185,7 +186,7 @@ func (e *Engine) answer(ctx context.Context, kind, id string, history []store.Ch
 		}
 		msgs = append(msgs, llm.Message{Role: "user", ToolResults: results})
 	}
-	return chatErr(errors.New("no answer after 8 tool rounds"))
+	return chatErr(fmt.Errorf("no answer after %d tool rounds (Settings → Limits → chat_max_turns)", l.ChatMaxTurns))
 }
 
 func chatErr(err error) store.ChatMsg {
@@ -194,6 +195,7 @@ func chatErr(err error) store.ChatMsg {
 
 // taskContext is a compact snapshot of a task for the chat assistant.
 func (e *Engine) taskContext(t *store.Task) string {
+	l := e.lim()
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n# Task %s: %s\nStage: %s. Status: %s\n", t.ID, t.Title, t.Stage, t.Status)
 	if br := t.Brief; br != nil {
@@ -203,13 +205,13 @@ func (e *Engine) taskContext(t *store.Task) string {
 		list(&b, "Open questions", br.Questions)
 		list(&b, "Task memory", br.Memory)
 	}
-	b.WriteString("## Captured request\n" + captureText(t, 4000))
+	b.WriteString("## Captured request\n" + captureText(t, l.StepCaptureChars))
 	if len(t.Steps) > 0 {
 		b.WriteString("## Plan\n")
 		for i, s := range t.Steps {
 			fmt.Fprintf(&b, "%d. [%s] %s", i+1, s.Status, s.Title)
 			if s.Summary != "" {
-				fmt.Fprintf(&b, " — %s", excerpt(strings.ReplaceAll(s.Summary, "\n", " "), 300))
+				fmt.Fprintf(&b, " — %s", excerpt(strings.ReplaceAll(s.Summary, "\n", " "), l.SummaryChars))
 			}
 			b.WriteString("\n")
 		}
@@ -221,7 +223,7 @@ func (e *Engine) taskContext(t *store.Task) string {
 		}
 	}
 	list(&b, "Files changed by the agent", changed)
-	if evs, _ := e.Store.Events(t.ID, 0, 30); len(evs) > 0 {
+	if evs, _ := e.Store.Events(t.ID, 0, l.ChatContextEvents); len(evs) > 0 {
 		b.WriteString("## Recent activity\n")
 		for _, ev := range evs {
 			if ev.Type == "llm" || ev.Type == "task" {

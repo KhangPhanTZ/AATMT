@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/khangphantz/aatmt/internal/imgutil"
-	"github.com/khangphantz/aatmt/internal/llm"
 	"github.com/khangphantz/aatmt/internal/store"
 )
 
@@ -78,8 +77,8 @@ func (s *Server) summary(t *store.Task) taskSummary {
 	} else if len(t.Images) > 0 {
 		sum.Snippet = t.Images[0].Transcript
 	}
-	if r := []rune(sum.Snippet); len(r) > 180 {
-		sum.Snippet = string(r[:180]) + "…"
+	if n := s.lim().SummaryChars; len([]rune(sum.Snippet)) > n {
+		sum.Snippet = string([]rune(sum.Snippet)[:n]) + "…"
 	}
 	return sum
 }
@@ -180,7 +179,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var files []*multipart.FileHeader
 	var zipFile *multipart.FileHeader
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
+		if err := s.parseMultipart(w, r); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -210,7 +209,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		if z := f.File["zip"]; len(z) > 0 {
 			zipFile = z[0]
 		}
-	} else if err := readJSON(r, &in); err != nil {
+	} else if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -333,7 +332,7 @@ func (s *Server) ensureProject(ctx context.Context, src store.Source, zipFile *m
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	got, ws, err := prepareSource(ctx, dir, src, zipFile)
+	got, ws, err := prepareSource(ctx, dir, src, zipFile, s.lim())
 	if err != nil {
 		_ = os.RemoveAll(dir)
 		return "", err
@@ -360,15 +359,16 @@ func first(v []string) string {
 // ---------- images ----------
 
 func (s *Server) saveUploadedImage(id string, fh *multipart.FileHeader) (*store.Image, error) {
-	if fh.Size > maxImageBytes {
-		return nil, fmt.Errorf("image %s is larger than 20 MB", fh.Filename)
+	l := s.lim()
+	if fh.Size > int64(l.MaxImageMB)<<20 {
+		return nil, fmt.Errorf("image %s is larger than %d MB (Settings → Limits → max_image_mb)", fh.Filename, l.MaxImageMB)
 	}
 	f, err := fh.Open()
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxImageBytes+1))
+	data, err := io.ReadAll(io.LimitReader(f, int64(l.MaxImageMB)<<20+1))
 	if err != nil {
 		return nil, err
 	}
@@ -376,8 +376,9 @@ func (s *Server) saveUploadedImage(id string, fh *multipart.FileHeader) (*store.
 }
 
 func (s *Server) saveImage(id, name, mime string, data []byte) (*store.Image, error) {
-	if len(data) > maxImageBytes {
-		return nil, errors.New("image larger than 20 MB")
+	l := s.lim()
+	if len(data) > l.MaxImageMB<<20 {
+		return nil, fmt.Errorf("image larger than %d MB (Settings → Limits → max_image_mb)", l.MaxImageMB)
 	}
 	if mime == "" || mime == "application/octet-stream" {
 		mime = http.DetectContentType(data)
@@ -385,7 +386,7 @@ func (s *Server) saveImage(id, name, mime string, data []byte) (*store.Image, er
 	if !strings.HasPrefix(mime, "image/") {
 		return nil, fmt.Errorf("%s is not an image (%s)", name, mime)
 	}
-	data, mime, wd, ht := imgutil.Normalize(data, mime)
+	data, mime, wd, ht := imgutil.Normalize(data, mime, l.ImageMaxEdge, l.ImageJPEGQuality)
 	ext := map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}[mime]
 	im := store.Image{ID: store.ShortID(), Name: name, Mime: mime, Size: int64(len(data)), Width: wd, Height: ht}
 	if im.Name == "" {
@@ -405,7 +406,7 @@ func (s *Server) saveImage(id, name, mime string, data []byte) (*store.Image, er
 
 func (s *Server) addImages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	if err := s.parseMultipart(w, r); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -447,7 +448,7 @@ func (s *Server) putImage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Transcript string `json:"transcript"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -494,7 +495,7 @@ func (s *Server) deleteImage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addMessage(w http.ResponseWriter, r *http.Request) {
 	var in msgIn
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -544,7 +545,7 @@ func (s *Server) setSource(w http.ResponseWriter, r *http.Request) {
 	var zipFile *multipart.FileHeader
 	projectID, name := "", ""
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
+		if err := s.parseMultipart(w, r); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -560,7 +561,7 @@ func (s *Server) setSource(w http.ResponseWriter, r *http.Request) {
 			ProjectID string       `json:"project_id"`
 			Source    store.Source `json:"source"`
 		}
-		if err := readJSON(r, &in); err != nil {
+		if err := s.readJSON(r, &in); err != nil {
 			writeErr(w, err)
 			return
 		}
@@ -617,7 +618,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 		Steps     *[]stepIn        `json:"steps"`
 		Overrides *store.Overrides `json:"overrides"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -787,7 +788,7 @@ func (s *Server) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
 	}
-	_ = readJSON(r, &in)
+	_ = s.readJSON(r, &in)
 	tpl := &store.Template{ID: store.ShortID(), Name: strings.TrimSpace(in.Name), Title: t.Title, Priority: t.Priority,
 		Tags: t.Tags, ProjectID: t.ProjectID}
 	if tpl.Name == "" {
@@ -815,18 +816,7 @@ func (s *Server) estimate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	prompt := s.Engine.AnalysisPrompt(t)
-	pending := 0
-	for _, im := range t.Images {
-		if strings.TrimSpace(im.Transcript) == "" {
-			pending++
-		}
-	}
-	writeJSON(w, 200, map[string]any{
-		"analysis_tokens":      llm.EstimateTokens(prompt) + 900,
-		"images_to_transcribe": pending,
-		"vision_tokens":        pending * 1700,
-	})
+	writeJSON(w, 200, s.Engine.EstimateAnalysis(t))
 }
 
 func (s *Server) analyze(w http.ResponseWriter, r *http.Request) {
@@ -886,7 +876,7 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request) {
 		Rework bool   `json:"rework"`
 		Run    bool   `json:"run"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -898,9 +888,9 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request) {
 	_, err := s.Store.UpdateTask(id, func(t *store.Task) error {
 		t.Notes = append(t.Notes, store.Note{ID: store.ShortID(), Text: in.Text, At: time.Now().UTC()})
 		if in.Rework {
-			title := in.Text
-			if r := []rune(title); len(r) > 80 {
-				title = string(r[:80]) + "…"
+			title := strings.TrimSpace(strings.SplitN(in.Text, "\n", 2)[0])
+			if n := s.lim().SummaryChars; len([]rune(title)) > n {
+				title = string([]rune(title)[:n]) + "…"
 			}
 			t.Steps = append(t.Steps, store.Step{ID: store.ShortID(), Title: "Address feedback: " + title,
 				Detail: "Reviewer feedback:\n" + in.Text, Status: store.StepPending})
@@ -931,7 +921,7 @@ func (s *Server) approval(w http.ResponseWriter, r *http.Request) {
 		Approve bool   `json:"approve"`
 		Always  bool   `json:"always"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -946,7 +936,7 @@ func (s *Server) taskChat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text string `json:"text"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -969,8 +959,8 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	after, _ := strconv.Atoi(r.URL.Query().Get("after"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 {
-		limit = 500
+	if max := s.lim().ListMaxItems; limit <= 0 || limit > max {
+		limit = max
 	}
 	evs, err := s.Store.Events(r.PathValue("id"), after, limit)
 	if err != nil {
@@ -981,7 +971,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) taskLLM(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, s.Store.LLMRecords(r.PathValue("id"), 500))
+	writeJSON(w, 200, s.Store.LLMRecords(r.PathValue("id"), s.lim().ListMaxItems))
 }
 
 func (s *Server) diff(w http.ResponseWriter, r *http.Request) {
@@ -1006,8 +996,8 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			d = "error: " + err.Error()
 		}
-		if len(d) > 200_000 {
-			d = d[:200_000] + "\n…(diff truncated)"
+		if n := s.lim().DiffMaxChars; len(d) > n {
+			d = d[:n] + "\n…(diff truncated — Settings → Limits → diff_max_chars)"
 		}
 		out = append(out, fileDiff{Path: c.Path, Op: c.Op, Step: c.Step, Diff: d})
 	}
@@ -1019,7 +1009,7 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Path string `json:"path"`
 	}
-	_ = readJSON(r, &in)
+	_ = s.readJSON(r, &in)
 	n, err := s.Engine.Revert(id, in.Path)
 	if err != nil {
 		writeErr(w, err)

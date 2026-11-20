@@ -1,11 +1,9 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/khangphantz/aatmt/internal/llm"
 	"github.com/khangphantz/aatmt/internal/store"
@@ -13,11 +11,12 @@ import (
 
 type profileDTO struct {
 	store.Profile
-	APIKey  string       `json:"api_key"` // always blank in responses
-	KeyHint string       `json:"key_hint"`
-	KeySet  bool         `json:"key_set"`
-	Usage   store.Usage  `json:"usage"`
-	Breaker *llm.Breaker `json:"breaker,omitempty"`
+	APIKey   string       `json:"api_key"` // always blank in responses
+	KeyHint  string       `json:"key_hint"`
+	KeySet   bool         `json:"key_set"`
+	Usage    store.Usage  `json:"usage"`
+	Breaker  *llm.Breaker `json:"breaker,omitempty"`
+	Measured float64      `json:"chars_per_token"` // measured from real calls; 0 = not measured yet
 }
 
 func keyHint(k string) string {
@@ -35,7 +34,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	brk := s.Pool.State()
 	profiles := make([]profileDTO, 0, len(cfg.Profiles))
 	for _, p := range cfg.Profiles {
-		d := profileDTO{Profile: *p, KeyHint: keyHint(p.APIKey), KeySet: p.APIKey != "", Usage: cfg.Usage[p.ID]}
+		d := profileDTO{Profile: *p, KeyHint: keyHint(p.APIKey), KeySet: p.APIKey != "", Usage: cfg.Usage[p.ID], Measured: llm.Measured(p.ID)}
 		if b, ok := brk[p.ID]; ok {
 			b := b
 			d.Breaker = &b
@@ -65,7 +64,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	var st store.Settings
-	if err := readJSON(r, &st); err != nil {
+	if err := s.readJSON(r, &st); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -90,13 +89,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	s.Pool.SetPolicy(st.RetryAttempts, time.Duration(st.BreakerCooldownSec)*time.Second)
+	s.Apply(s.Store.Config().Settings)
 	s.getConfig(w, r)
 }
 
 func (s *Server) putRoles(w http.ResponseWriter, r *http.Request) {
 	var roles store.Roles
-	if err := readJSON(r, &roles); err != nil {
+	if err := s.readJSON(r, &roles); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -110,7 +109,7 @@ func (s *Server) putRoles(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
 	var in store.Profile
-	if err := readJSON(r, &in); err != nil {
+	if err := s.readJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -196,9 +195,8 @@ func (s *Server) testProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, store.ErrNotFound)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
 	p.Enabled = true
+	ctx := r.Context()
 	resp, err := llm.Test(ctx, p)
 	if err != nil {
 		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
@@ -214,12 +212,12 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, store.ErrNotFound)
 		return
 	}
-	ids, err := llm.ListModels(r.Context(), p)
+	models, err := llm.ListModels(r.Context(), p)
 	if err != nil {
 		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "models": ids})
+	writeJSON(w, 200, map[string]any{"ok": true, "models": models})
 }
 
 func (s *Server) resetBreaker(w http.ResponseWriter, r *http.Request) {

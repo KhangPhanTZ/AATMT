@@ -18,13 +18,31 @@ import (
 )
 
 type Server struct {
-	Store  *store.Store
-	Engine *agent.Engine
-	Pool   *llm.Pool
-	Token  string // optional shared token (required when listening beyond loopback)
-	UI     fs.FS
-	Local  bool // listening on loopback only
-	Logs   *logbuf.Buffer
+	Store   *store.Store
+	Engine  *agent.Engine
+	Pool    *llm.Pool
+	Token   string // optional shared token (required when listening beyond loopback)
+	UI      fs.FS
+	Local   bool // listening on loopback only
+	Logs    *logbuf.Buffer
+	Version string
+}
+
+// lim returns the configured limits (Settings → Limits).
+func (s *Server) lim() store.Limits { return s.Store.Config().Settings.Limits }
+
+// Apply pushes settings that live outside the store into the running
+// components (provider pool, model defaults, log buffer). Called at startup
+// and whenever settings are saved.
+func (s *Server) Apply(st store.Settings) {
+	l := st.Limits
+	s.Pool.Configure(llm.Policy{Attempts: st.RetryAttempts, Cooldown: time.Duration(st.BreakerCooldownSec) * time.Second,
+		TripAfter: l.BreakerTripAfter, Backoff: time.Duration(l.RetryBackoffSec) * time.Second,
+		RetryAfterCap: time.Duration(l.RetryAfterCapSec) * time.Second})
+	llm.SetDefaults(l)
+	if s.Logs != nil {
+		s.Logs.SetMax(l.LogLines)
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -96,7 +114,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/{id}/diff", s.diff)
 	mux.HandleFunc("POST /api/tasks/{id}/revert", s.revert)
 	mux.HandleFunc("GET /api/stream", s.stream)
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]any{"ok": true}) })
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"ok": true, "version": s.Version})
+	})
 
 	if s.UI != nil {
 		static := http.FileServer(http.FS(s.UI))
@@ -180,9 +200,17 @@ func writeErr(w http.ResponseWriter, err error) {
 	writeJSON(w, code, map[string]any{"error": err.Error()})
 }
 
-func readJSON(r *http.Request, v any) error {
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 8<<20))
+func (s *Server) readJSON(r *http.Request, v any) error {
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, int64(s.lim().MaxUploadMB)<<20))
 	return dec.Decode(v)
+}
+
+// parseMultipart caps the request at max_upload_mb; parts beyond the
+// in-memory share are spooled to temporary files by net/http.
+func (s *Server) parseMultipart(w http.ResponseWriter, r *http.Request) error {
+	max := int64(s.lim().MaxUploadMB) << 20
+	r.Body = http.MaxBytesReader(w, r.Body, max)
+	return r.ParseMultipartForm(max)
 }
 
 // ---------- SSE ----------
@@ -200,7 +228,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	defer s.Store.Hub().Unsubscribe(ch)
 	_, _ = w.Write([]byte(": ok\n\n"))
 	fl.Flush()
-	ping := time.NewTicker(25 * time.Second)
+	ping := time.NewTicker(time.Duration(s.lim().StreamPingSec) * time.Second)
 	defer ping.Stop()
 	for {
 		select {

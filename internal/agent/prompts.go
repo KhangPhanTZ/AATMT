@@ -163,11 +163,11 @@ func skillSet(cfg store.Config, p *store.Project, text string) (full, index []*s
 	return
 }
 
-func writeSkills(b *strings.Builder, full, index []*store.Skill) {
+func writeSkills(b *strings.Builder, full, index []*store.Skill, l store.Limits) {
 	if len(full) > 0 {
 		b.WriteString("\n## Skills (follow these)\n")
 		for _, sk := range full {
-			fmt.Fprintf(b, "### %s — %s\n%s\n", sk.Name, sk.Description, clip(sk.Content, 3000))
+			fmt.Fprintf(b, "### %s — %s\n%s\n", sk.Name, sk.Description, clip(sk.Content, l.SkillMaxChars))
 		}
 	}
 	if len(index) > 0 {
@@ -178,23 +178,23 @@ func writeSkills(b *strings.Builder, full, index []*store.Skill) {
 	}
 }
 
-func writeProject(b *strings.Builder, p *store.Project) {
+func writeProject(b *strings.Builder, p *store.Project, l store.Limits) {
 	if p == nil {
 		return
 	}
 	fmt.Fprintf(b, "\n## Project: %s\n", p.Name)
 	if p.Description != "" {
-		b.WriteString(clip(p.Description, 1500) + "\n")
+		b.WriteString(clip(p.Description, l.ProjectDescChars) + "\n")
 	}
 	if len(p.Knowledge) > 0 {
 		b.WriteString("Project knowledge (learned by earlier tasks):\n")
 		// newest last, capped
 		ks := p.Knowledge
-		if len(ks) > 40 {
-			ks = ks[len(ks)-40:]
+		if len(ks) > l.KnowledgeMaxNotes {
+			ks = ks[len(ks)-l.KnowledgeMaxNotes:]
 		}
 		for _, k := range ks {
-			fmt.Fprintf(b, "- %s\n", clip(k.Text, 400))
+			fmt.Fprintf(b, "- %s\n", clip(k.Text, l.SummaryChars))
 		}
 	}
 	if len(p.Commands) > 0 {
@@ -228,7 +228,7 @@ func (e *Engine) projectHistory(t *store.Task, n int) string {
 	for _, o := range rows {
 		sum := ""
 		if o.Brief != nil {
-			sum = excerpt(strings.ReplaceAll(o.Brief.Summary, "\n", " "), 220)
+			sum = excerpt(strings.ReplaceAll(o.Brief.Summary, "\n", " "), e.lim().SummaryChars)
 		}
 		fmt.Fprintf(&b, "- [%s] %s — %s\n", o.Stage, o.Title, sum)
 	}
@@ -240,6 +240,7 @@ func (e *Engine) projectHistory(t *store.Task, n int) string {
 // pick up the task at any step without replaying earlier conversations.
 func (e *Engine) stepPrompt(t *store.Task, p *store.Project, idx int, notes []store.Note, tree string) string {
 	cfg := e.Store.Config()
+	l := cfg.Settings.Limits
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Task: %s\n\n", t.Title)
 	if br := t.Brief; br != nil {
@@ -251,9 +252,9 @@ func (e *Engine) stepPrompt(t *store.Task, p *store.Project, idx int, notes []st
 		list(&b, "Assumptions / open questions", br.Questions)
 		list(&b, "Task memory (notes saved by earlier steps)", br.Memory)
 	}
-	writeProject(&b, p)
+	writeProject(&b, p, l)
 	b.WriteString("\n## Original request (captured)\n")
-	b.WriteString(captureText(t, 6000))
+	b.WriteString(captureText(t, l.StepCaptureChars))
 	b.WriteString("\n## Plan\n")
 	for i, s := range t.Steps {
 		mark := s.Status
@@ -262,7 +263,7 @@ func (e *Engine) stepPrompt(t *store.Task, p *store.Project, idx int, notes []st
 		}
 		fmt.Fprintf(&b, "%d. [%s] %s", i+1, mark, s.Title)
 		if s.Status == store.StepDone && s.Summary != "" {
-			fmt.Fprintf(&b, " — %s", clip(strings.ReplaceAll(s.Summary, "\n", " "), 400))
+			fmt.Fprintf(&b, " — %s", clip(strings.ReplaceAll(s.Summary, "\n", " "), l.SummaryChars))
 		}
 		b.WriteString("\n")
 	}
@@ -271,8 +272,8 @@ func (e *Engine) stepPrompt(t *store.Task, p *store.Project, idx int, notes []st
 	if len(s.Files) > 0 {
 		fmt.Fprintf(&b, "Files: %s\n", strings.Join(s.Files, ", "))
 	}
-	full, index := skillSet(cfg, p, t.Title+" "+s.Title+" "+s.Detail+" "+captureText(t, 3000))
-	writeSkills(&b, full, index)
+	full, index := skillSet(cfg, p, t.Title+" "+s.Title+" "+s.Detail+" "+captureText(t, l.StepCaptureChars))
+	writeSkills(&b, full, index, l)
 	if len(notes) > 0 {
 		b.WriteString("\n## Operator notes (highest priority)\n")
 		for _, n := range notes {
@@ -301,7 +302,8 @@ func (e *Engine) AnalysisPrompt(t *store.Task) string {
 		fmt.Fprintf(&b, "Working title: %s\n\n", t.Title)
 	}
 	b.WriteString("## Captured request\n")
-	capture := captureText(t, 24000)
+	l := st.Limits
+	capture := captureText(t, l.CaptureMaxChars)
 	b.WriteString(capture)
 	var notes []string
 	for _, n := range t.Notes {
@@ -310,16 +312,16 @@ func (e *Engine) AnalysisPrompt(t *store.Task) string {
 	if len(notes) > 0 {
 		b.WriteString("\n## Notes from the developer\n- " + strings.Join(notes, "\n- ") + "\n")
 	}
-	writeProject(&b, p)
-	b.WriteString(e.projectHistory(t, 8))
+	writeProject(&b, p, l)
+	b.WriteString(e.projectHistory(t, l.HistoryTasks))
 	full, index := skillSet(cfg, p, capture+" "+strings.Join(notes, " "))
-	writeSkills(&b, full, index)
+	writeSkills(&b, full, index, l)
 	if ws != "" {
-		files, _ := codeidx.Scan(ws, 8000)
+		files, _ := codeidx.Scan(ws, l.CodeScanMaxFiles)
 		fmt.Fprintf(&b, "\n## Source tree (%d files)\n", len(files))
-		b.WriteString(codeidx.Tree(files, 220))
+		b.WriteString(codeidx.Tree(files, l.CodeTreeLines))
 		query := capture + " " + strings.Join(notes, " ")
-		hits := codeidx.Rank(ws, files, codeidx.Terms(query), 12)
+		hits := codeidx.Rank(ws, files, codeidx.Terms(query), l.CodeRankFiles, int64(l.CodeMaxFileKB)<<10)
 		if len(hits) > 0 {
 			b.WriteString("\n## Most relevant code (keyword-ranked excerpts)\n")
 			b.WriteString(codeidx.Snippets(ws, hits, st.CodeContextTokens*4))

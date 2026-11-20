@@ -28,10 +28,9 @@ import (
 	"github.com/khangphantz/aatmt/internal/notify"
 	"github.com/khangphantz/aatmt/internal/server"
 	"github.com/khangphantz/aatmt/internal/store"
+	"github.com/khangphantz/aatmt/internal/version"
 	"github.com/khangphantz/aatmt/web"
 )
-
-var version = "dev"
 
 func main() {
 	addr := flag.String("addr", env("AATMT_ADDR", "127.0.0.1:8787"), "listen address")
@@ -41,7 +40,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *showVersion {
-		fmt.Println("aatmt", version)
+		fmt.Println("aatmt", version.Version)
 		return
 	}
 
@@ -55,7 +54,7 @@ func main() {
 		log.Fatal("refusing to listen beyond loopback without -token / AATMT_TOKEN (the agent can read files and run commands)")
 	}
 
-	logs := logbuf.New(2000)
+	logs := logbuf.New(store.DefaultLimits().LogLines)
 	log.SetOutput(io.MultiWriter(os.Stderr, logs))
 
 	st, err := store.Open(*dataDir)
@@ -64,18 +63,18 @@ func main() {
 	}
 	st.OnEvent = notify.Hook(st)
 	pool := llm.NewPool()
-	set := st.Config().Settings
-	pool.SetPolicy(set.RetryAttempts, time.Duration(set.BreakerCooldownSec)*time.Second)
 	eng := agent.New(st, pool)
-	srv := &server.Server{Store: st, Engine: eng, Pool: pool, Token: *token, UI: web.FS(), Local: local, Logs: logs}
+	srv := &server.Server{Store: st, Engine: eng, Pool: pool, Token: *token, UI: web.FS(), Local: local, Logs: logs, Version: version.Version}
+	srv.Apply(st.Config().Settings) // limits, retry policy, model defaults, log size
 
-	hs := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	hs := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: readHeaderTimeout}
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	url := "http://" + ln.Addr().String()
-	log.Printf("AATMT %s — %s (data: %s)", version, url, *dataDir)
+	notify.SetBaseURL(url)
+	log.Printf("AATMT %s — %s (data: %s)", version.Version, url, *dataDir)
 	if *open {
 		go openBrowser(url)
 	}
@@ -84,7 +83,7 @@ func main() {
 	defer stop()
 	go func() {
 		<-ctx.Done()
-		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		sctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 		defer cancel()
 		_ = hs.Shutdown(sctx)
 		eng.MCP.Close() // stop stdio MCP server processes
@@ -93,6 +92,13 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+// Server hardening values (not user limits): a slow client gets this long to
+// send request headers, and shutdown waits this long for open requests.
+const (
+	readHeaderTimeout = 10 * time.Second
+	shutdownGrace     = 5 * time.Second
+)
 
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
@@ -108,8 +114,8 @@ func defaultDataDir() string {
 	return "data"
 }
 
+// openBrowser runs after the listener is open, so the page loads immediately.
 func openBrowser(url string) {
-	time.Sleep(300 * time.Millisecond)
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":

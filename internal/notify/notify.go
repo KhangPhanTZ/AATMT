@@ -10,10 +10,34 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/khangphantz/aatmt/internal/store"
 )
+
+var (
+	baseMu  sync.RWMutex
+	baseURL string
+)
+
+// SetBaseURL sets the link base used when Settings → Public URL is empty
+// (the address the server actually listens on).
+func SetBaseURL(u string) {
+	baseMu.Lock()
+	baseURL = u
+	baseMu.Unlock()
+}
+
+// PublicURL returns the configured public URL, or the listen address.
+func PublicURL(configured string) string {
+	if configured != "" {
+		return strings.TrimRight(configured, "/")
+	}
+	baseMu.RLock()
+	defer baseMu.RUnlock()
+	return baseURL
+}
 
 // Kind maps a task event to a notification kind ("" = not notifiable).
 func Kind(ev store.Event) string {
@@ -41,8 +65,6 @@ func Kind(ev store.Event) string {
 	return ""
 }
 
-var client = &http.Client{Timeout: 10 * time.Second}
-
 // Hook returns a store.OnEvent handler that dispatches matching events.
 func Hook(st *store.Store) func(store.Event) {
 	return func(ev store.Event) {
@@ -64,11 +86,14 @@ func Hook(st *store.Store) func(store.Event) {
 		if t, err := st.Task(ev.TaskID); err == nil {
 			title = t.Title
 		}
-		link := strings.TrimRight(cfg.Settings.PublicURL, "/") + "/#/task/" + ev.TaskID
-		text := fmt.Sprintf("[%s] %s — %s", strings.ToUpper(kind), title, firstLine(ev.Detail, ev.Title))
+		link := PublicURL(cfg.Settings.PublicURL) + "/#/task/" + ev.TaskID
+		l := cfg.Settings.Limits
+		text := fmt.Sprintf("[%s] %s — %s", strings.ToUpper(kind), title, firstLine(ev.Detail, ev.Title, l.SummaryChars))
 		for _, w := range hooks {
 			go func(w *store.Webhook) {
-				if err := Send(context.Background(), w, text, link); err != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(l.WebhookTimeoutSec)*time.Second)
+				defer cancel()
+				if err := Send(ctx, w, text, link); err != nil {
 					log.Printf("notify %s: %v", w.Name, err)
 				}
 			}(w)
@@ -99,7 +124,7 @@ func Send(ctx context.Context, w *store.Webhook, text, link string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	res, err := client.Do(req)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -119,7 +144,7 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-func firstLine(s, def string) string {
+func firstLine(s, def string, max int) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return def
@@ -127,8 +152,8 @@ func firstLine(s, def string) string {
 	if i := strings.IndexByte(s, '\n'); i > 0 {
 		s = s[:i]
 	}
-	if len(s) > 200 {
-		s = s[:200] + "…"
+	if r := []rune(s); len(r) > max {
+		s = string(r[:max]) + "…"
 	}
 	return s
 }

@@ -27,7 +27,7 @@ ROUTES[''] = async () => {
           ${STAGES.map((s) => `<div class="row nowrap" style="margin:6px 0"><span style="width:96px">${stageBadge(s)}</span>
             <div class="bar grow"><i style="width:${active ? ((d.stages[s] || 0) / active) * 100 : 0}%;background:${STAGE_COLOR[s]}"></i></div><b style="width:28px;text-align:right">${d.stages[s] || 0}</b></div>`).join('')}</div></div>
       <div class="grid2" style="margin-bottom:14px">
-        <div class="card"><div class="card-h"><h3>Tokens · last 14 days</h3><span class="muted small right">dark = input+output · light = cache reads</span></div>
+        <div class="card"><div class="card-h"><h3>Tokens · last ${d.daily.length} days</h3><span class="muted small right">dark = input+output · light = cache reads</span></div>
           <div class="chart">${d.daily.map((x) => { const io = x.input + x.output; return `<div class="b" title="${x.date}: in ${fmtN(x.input)} · out ${fmtN(x.output)} · cache ${fmtN(x.cache_read)} · ${x.calls} calls">
             <i class="c" style="height:${(x.cache_read / max) * 100}%"></i><i style="height:${(io / max) * 100}%"></i><em>${x.date.slice(8)}</em></div>`; }).join('')}</div></div>
         <div class="card"><div class="card-h"><h3>Providers</h3><a class="btn sm right" href="#/providers">Manage</a></div>
@@ -80,16 +80,20 @@ ROUTES.llm = async () => {
 };
 
 // ---------------------------------------------------------------- providers
+// Presets carry only endpoint facts (format, URL, auth style). The model, its
+// context window, output limit and vision support come from the provider's
+// own /models API via "Fetch models" — nothing is assumed here.
 const PRESETS = {
-  openai: { name: 'OpenAI', format: 'openai', base_url: 'https://api.openai.com/v1', model: 'gpt-4o', vision: true, context_window: 128000 },
-  anthropic: { name: 'Anthropic Claude', format: 'anthropic', base_url: 'https://api.anthropic.com', model: 'claude-opus-5-5', vision: true, prompt_cache: true, context_window: 1000000, max_tokens: 16000 },
-  azure: { name: 'Azure OpenAI', format: 'openai', base_url: 'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT/chat/completions?api-version=2024-10-21', auth_header: 'api-key', model: 'YOUR-DEPLOYMENT', vision: true },
-  gemini: { name: 'Google Gemini', format: 'openai', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', vision: true, context_window: 1000000 },
-  openrouter: { name: 'OpenRouter', format: 'openai', base_url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', vision: true },
-  deepseek: { name: 'DeepSeek', format: 'openai', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', vision: false, context_window: 64000 },
-  ollama: { name: 'Ollama (local)', format: 'openai', base_url: 'http://localhost:11434/v1', model: 'qwen2.5-coder:14b', vision: false, context_window: 32000, tool_mode: 'json' },
-  lmstudio: { name: 'LM Studio (local)', format: 'openai', base_url: 'http://localhost:1234/v1', model: 'local-model', vision: false, context_window: 32000 },
-  gateway: { name: 'Company gateway', format: 'openai', base_url: 'https://llm-gateway.company.local/v1', model: 'gpt-4o', vision: true },
+  openai: { name: 'OpenAI', format: 'openai', base_url: 'https://api.openai.com/v1' },
+  anthropic: { name: 'Anthropic', format: 'anthropic', base_url: 'https://api.anthropic.com', prompt_cache: true },
+  azure: { name: 'Azure OpenAI', format: 'openai', base_url: '', auth_header: 'api-key',
+    url_hint: 'https://<resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=<version>' },
+  gemini: { name: 'Google Gemini', format: 'openai', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai' },
+  openrouter: { name: 'OpenRouter', format: 'openai', base_url: 'https://openrouter.ai/api/v1' },
+  deepseek: { name: 'DeepSeek', format: 'openai', base_url: 'https://api.deepseek.com/v1' },
+  ollama: { name: 'Ollama (local)', format: 'openai', base_url: 'http://localhost:11434/v1' },
+  lmstudio: { name: 'LM Studio (local)', format: 'openai', base_url: 'http://localhost:1234/v1' },
+  gateway: { name: 'Company gateway', format: 'openai', base_url: '', url_hint: 'https://<your-gateway>/v1' },
 };
 ROUTES.providers = async () => {
   S.view = 'providers';
@@ -103,7 +107,7 @@ ROUTES.providers = async () => {
   $$('[data-edit]').forEach((b) => (b.onclick = () => editProfile(byId[b.dataset.edit])));
   $$('[data-test]').forEach((b) => (b.onclick = async () => {
     b.innerHTML = '<span class="spin"></span>'; const r = await act(() => api('POST', `/profiles/${b.dataset.test}/test`)); b.textContent = 'Test';
-    if (r) r.ok ? toast(`✓ ${r.ms} ms — "${(r.reply || '').slice(0, 60)}"`) : toast('✗ ' + r.error, true);
+    if (r) r.ok ? toast(`✓ ${r.ms} ms · in ${r.usage.input} / out ${r.usage.output} tokens — "${r.reply || ''}"`) : toast('✗ ' + r.error, true);
     ROUTES.providers();
   }));
   $$('[data-reset]').forEach((b) => (b.onclick = () => act(() => api('POST', `/profiles/${b.dataset.reset}/reset`)).then(ROUTES.providers)));
@@ -122,7 +126,7 @@ function profileCard(p) {
     <div class="chips">${p.vision ? '<span class="badge planned">vision</span>' : ''}${p.tool_mode === 'json' ? '<span class="badge">json tools</span>' : ''}
       ${p.prompt_cache ? '<span class="badge ok">cache</span>' : ''}${p.rate_per_minute ? `<span class="badge">${p.rate_per_minute}/min</span>` : ''}
       ${p.effort ? `<span class="badge">effort ${esc(p.effort)}</span>` : ''}<span class="chip">${esc(p.key_set ? p.key_hint : 'no key')}</span></div>
-    <div class="small muted">${fmtN(u.calls)} calls · in ${fmtK(u.input)} · out ${fmtK(u.output)} · cache ${fmtK(u.cache_read)}${u.cost ? ` · $${u.cost.toFixed(3)}` : ''}</div>
+    <div class="small muted">${fmtN(u.calls)} calls · in ${fmtK(u.input)} · out ${fmtK(u.output)} · cache ${fmtK(u.cache_read)}${u.cost ? ` · $${u.cost.toFixed(3)}` : ''}${p.chars_per_token ? ` · ${p.chars_per_token.toFixed(2)} chars/token measured` : ''}</div>
     <div class="row" style="margin-top:4px"><button class="sm" data-test="${esc(p.id)}">Test</button><button class="sm" data-edit="${esc(p.id)}">${ic('edit')} Edit</button>
       ${cooling ? `<button class="sm" data-reset="${esc(p.id)}">Reset breaker</button>` : ''}</div></div>`;
 }
@@ -140,8 +144,8 @@ function editProfile(p) {
       <div class="grid2"><label class="f">API key <span class="hint">${isNew ? 'or env:VAR_NAME' : 'blank = keep · "-" = remove'}</span><input id="pf-key" type="password" autocomplete="off" placeholder="${isNew ? 'sk-… / env:OPENAI_API_KEY' : esc(p.key_hint || '')}"></label>
         <label class="f">Model<div class="row nowrap"><input id="pf-model" class="grow" value="${esc(p.model)}" list="pf-models"><datalist id="pf-models"></datalist>
           ${isNew ? '' : '<button class="sm" id="pf-fetch" type="button">Fetch models</button>'}</div></label></div>
-      <div class="grid3"><label class="f">Max output tokens<input id="pf-maxt" type="number" value="${p.max_tokens || ''}" placeholder="8192"></label>
-        <label class="f">Context window<input id="pf-ctx" type="number" value="${p.context_window || ''}" placeholder="128000"></label>
+      <div class="grid3"><label class="f">Max output tokens<input id="pf-maxt" type="number" value="${p.max_tokens || ''}" placeholder="default: ${S.cfg.settings.limits.default_max_tokens}"></label>
+        <label class="f">Context window<input id="pf-ctx" type="number" value="${p.context_window || ''}" placeholder="default: ${S.cfg.settings.limits.default_context_window}"></label>
         <label class="f">Rate limit / min<input id="pf-rpm" type="number" value="${p.rate_per_minute || ''}" placeholder="unlimited"></label></div>
       <div class="row" style="gap:18px"><label class="chk">${sw('pf-vision', p.vision)} Vision (accepts images)</label>
         <label class="chk">${sw('pf-cache', p.prompt_cache)} Prompt cache (Anthropic)</label><label class="chk">${sw('pf-enabled', p.enabled)} Enabled</label></div>
@@ -149,12 +153,15 @@ function editProfile(p) {
       <details><summary class="small muted" style="cursor:pointer">Advanced</summary><div class="col" style="margin-top:8px">
         <div class="grid3"><label class="f">Effort / reasoning_effort<select id="pf-effort"><option value="">(omit)</option>${['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((x) => `<option ${p.effort === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
           <label class="f">Temperature<input id="pf-temp" value="${p.temperature ?? ''}" placeholder="(omit)"></label>
-          <label class="f">Timeout (s)<input id="pf-timeout" type="number" value="${p.timeout_sec || ''}" placeholder="300"></label></div>
+          <label class="f">Timeout (s)<input id="pf-timeout" type="number" value="${p.timeout_sec || ''}" placeholder="default: ${S.cfg.settings.limits.default_timeout_sec}"></label></div>
         <div class="grid3"><label class="f">Max-tokens field<select id="pf-mtf"><option value="">max_tokens</option><option value="max_completion_tokens" ${p.max_tokens_field === 'max_completion_tokens' ? 'selected' : ''}>max_completion_tokens</option></select></label>
           <label class="f">Auth header<input id="pf-ah" value="${esc(p.auth_header || '')}" placeholder="Authorization / x-api-key / api-key"></label>
           <label class="f">Auth prefix<input id="pf-ap" value="${esc(p.auth_prefix || '')}" placeholder="Bearer  (none = raw key)"></label></div>
         <label class="f">Extra headers <span class="hint">one per line — Key: Value</span><textarea id="pf-hdrs" rows="2">${esc(hdrs)}</textarea></label>
-        <div class="grid2"><label class="f">Price in ($ / 1M tokens)<input id="pf-pin" value="${p.price_in || ''}"></label><label class="f">Price out ($ / 1M tokens)<input id="pf-pout" value="${p.price_out || ''}"></label></div>
+        <div class="section-title" style="margin-top:4px">Prices from your contract ($ / 1M tokens) — leave empty to show no cost</div>
+        <div class="grid4"><label class="f">Input<input id="pf-pin" type="number" step="any" value="${p.price_in || ''}"></label><label class="f">Output<input id="pf-pout" type="number" step="any" value="${p.price_out || ''}"></label>
+          <label class="f">Cache read <span class="hint">empty = input price</span><input id="pf-pcr" type="number" step="any" value="${p.price_cache_read || ''}"></label>
+          <label class="f">Cache write <span class="hint">empty = input price</span><input id="pf-pcw" type="number" step="any" value="${p.price_cache_write || ''}"></label></div>
       </div></details></div>
     <div class="modal-f">${isNew ? '' : `<button class="danger" id="pf-del">${ic('trash')} Delete</button>`}<span class="right"></span>
       <button data-close>Cancel</button><button class="primary" id="pf-save">Save</button></div>`);
@@ -162,14 +169,28 @@ function editProfile(p) {
   $('#pf-tools').value = p.tool_mode || 'native';
   if ($('#pf-preset')) $('#pf-preset').onchange = (e) => {
     const v = PRESETS[e.target.value]; if (!v) return;
-    $('#pf-name').value = v.name; $('#pf-format').value = v.format; $('#pf-url').value = v.base_url; $('#pf-model').value = v.model;
-    $('#pf-vision').checked = !!v.vision; $('#pf-cache').checked = !!v.prompt_cache; $('#pf-ctx').value = v.context_window || '';
-    $('#pf-maxt').value = v.max_tokens || ''; $('#pf-tools').value = v.tool_mode || 'native'; $('#pf-ah').value = v.auth_header || '';
+    $('#pf-name').value = v.name; $('#pf-format').value = v.format; $('#pf-url').value = v.base_url;
+    $('#pf-url').placeholder = v.url_hint || ''; $('#pf-cache').checked = !!v.prompt_cache; $('#pf-ah').value = v.auth_header || '';
+    toast('Save, then use “Fetch models” to pick a model — its limits are filled from the provider.');
+  };
+  let models = [];
+  const applyModel = () => {
+    const m = models.find((x) => x.id === $('#pf-model').value.trim()); if (!m) return;
+    if (m.context_window) $('#pf-ctx').value = m.context_window;
+    if (m.max_output) $('#pf-maxt').value = m.max_output;
+    if (m.vision !== undefined && m.vision !== null) $('#pf-vision').checked = m.vision;
   };
   if ($('#pf-fetch')) $('#pf-fetch').onclick = async () => {
     const r = await act(() => api('POST', `/profiles/${p.id}/models`));
-    if (r && r.ok) { $('#pf-models').innerHTML = r.models.map((x) => `<option value="${esc(x)}">`).join(''); toast(`${r.models.length} models`); } else if (r) toast(r.error, true);
+    if (r && r.ok) {
+      models = r.models;
+      $('#pf-models').innerHTML = models.map((x) => `<option value="${esc(x.id)}">${x.context_window ? `${esc(x.id)} · ${fmtK(x.context_window)} ctx` : ''}</option>`).join('');
+      const withMeta = models.filter((x) => x.context_window).length;
+      toast(`${models.length} models${withMeta ? ` · limits reported for ${withMeta}` : ' · this endpoint does not report limits'}`);
+      applyModel();
+    } else if (r) toast(r.error, true);
   };
+  $('#pf-model').addEventListener('change', applyModel);
   if ($('#pf-del')) $('#pf-del').onclick = async () => { if (!confirm('Delete provider?')) return; await act(() => api('DELETE', '/profiles/' + p.id)); m.close(); ROUTES.providers(); };
   $('#pf-save').onclick = async () => {
     const num = (id) => parseInt($(id).value, 10) || 0; const flt = (id) => parseFloat($(id).value) || 0;
@@ -179,7 +200,8 @@ function editProfile(p) {
     const body = { name: $('#pf-name').value, format: $('#pf-format').value, base_url: $('#pf-url').value, api_key: $('#pf-key').value, model: $('#pf-model').value,
       max_tokens: num('#pf-maxt'), context_window: num('#pf-ctx'), rate_per_minute: num('#pf-rpm'), vision: $('#pf-vision').checked, prompt_cache: $('#pf-cache').checked,
       enabled: $('#pf-enabled').checked, tool_mode: $('#pf-tools').value, effort: $('#pf-effort').value, timeout_sec: num('#pf-timeout'),
-      max_tokens_field: $('#pf-mtf').value, auth_header: $('#pf-ah').value.trim(), auth_prefix: $('#pf-ap').value, headers, price_in: flt('#pf-pin'), price_out: flt('#pf-pout') };
+      max_tokens_field: $('#pf-mtf').value, auth_header: $('#pf-ah').value.trim(), auth_prefix: $('#pf-ap').value, headers, price_in: flt('#pf-pin'), price_out: flt('#pf-pout'),
+      price_cache_read: flt('#pf-pcr'), price_cache_write: flt('#pf-pcw') };
     if (temp !== '') body.temperature = parseFloat(temp);
     const r = await act(() => (isNew ? api('POST', '/profiles', body) : api('PUT', '/profiles/' + p.id, body)), 'Saved');
     if (r) { S.cfg = r; m.close(); ROUTES.providers(); }
@@ -371,6 +393,30 @@ ROUTES.logs = async () => {
   await draw();
 };
 
+// ---------------------------------------------------------------- limits editor
+const LIMIT_GROUPS = [
+  ['Uploads & images', ['max_image_mb', 'max_upload_mb', 'max_unzip_mb', 'max_unzip_files', 'image_max_edge', 'image_jpeg_quality']],
+  ['Code context', ['code_scan_max_files', 'code_max_file_kb', 'code_tree_lines', 'step_tree_lines', 'code_rank_files', 'read_file_lines', 'search_max_results', 'file_view_max_kb']],
+  ['Prompt budgets', ['capture_max_chars', 'step_capture_chars', 'knowledge_max_notes', 'history_tasks', 'skill_max_chars', 'summary_chars', 'project_desc_chars']],
+  ['Model defaults (when a provider leaves them empty)', ['default_max_tokens', 'default_context_window', 'default_timeout_sec']],
+  ['Chat & approvals', ['chat_max_turns', 'chat_history', 'chat_context_events', 'chat_timeout_min', 'approval_timeout_min']],
+  ['Provider pool', ['breaker_trip_after', 'retry_backoff_sec', 'retry_after_cap_sec']],
+  ['MCP', ['mcp_connect_timeout_sec', 'mcp_call_timeout_sec', 'mcp_retry_after_sec']],
+  ['Network', ['git_timeout_min', 'webhook_timeout_sec', 'web_fetch_timeout_sec', 'web_fetch_max_kb', 'web_search_results']],
+  ['Records, display & retention', ['llm_record_max_chars', 'event_detail_chars', 'diff_max_chars', 'diff_max_cells', 'list_max_items', 'dashboard_items', 'dashboard_days', 'usage_history_days', 'log_lines', 'stream_ping_sec']],
+];
+function limitLabel(k) {
+  const unit = { mb: 'MB', kb: 'KB', sec: 's', min: 'min' }[k.split('_').pop()] || '';
+  const words = k.split('_').filter((w) => !['mb', 'kb', 'sec', 'min'].includes(w)).join(' ');
+  return words.charAt(0).toUpperCase() + words.slice(1) + (unit ? ` (${unit})` : '');
+}
+function limitsHTML(l) {
+  const known = new Set(LIMIT_GROUPS.flatMap(([, ks]) => ks));
+  const groups = [...LIMIT_GROUPS, ['Other', Object.keys(l).filter((k) => !known.has(k))]].filter(([, ks]) => ks.length);
+  return groups.map(([g, ks]) => `<div class="section-title" style="margin-top:12px">${esc(g)}</div><div class="grid4">${ks.filter((k) => k in l)
+    .map((k) => `<label class="f">${esc(limitLabel(k))}<input type="number" min="1" data-limit="${k}" value="${l[k]}"></label>`).join('')}</div>`).join('');
+}
+
 // ---------------------------------------------------------------- settings
 ROUTES.settings = async () => {
   S.view = 'settings';
@@ -406,15 +452,19 @@ ROUTES.settings = async () => {
       <label class="f">Search API key <span class="hint">literal or env:NAME · blank = keep</span><input id="s-wsk" type="password" placeholder="${esc(s.web_search_key || '')}"></label>
       <label class="chk" style="margin-top:20px">${sw('s-wf', s.web_fetch)} Allow web_fetch (public URLs only)</label></div></div>
     <div class="card"><div class="card-h"><h3>Notifications</h3></div>
-      <label class="f">Public URL of this app <span class="hint">used for links in webhook messages</span><input id="s-url" value="${esc(s.public_url)}"></label></div></div>`;
+      <label class="f">Public URL of this app <span class="hint">links in webhook messages · empty = the address the server listens on</span><input id="s-url" value="${esc(s.public_url)}"></label></div>
+    <div class="card"><div class="card-h"><h3>Limits &amp; timeouts</h3><span class="muted small">every operational limit the app uses — nothing is hard-coded elsewhere</span>
+      <button class="sm right" id="s-lreset">Reset to defaults</button></div>${limitsHTML(s.limits)}</div></div>`;
   $('#s-policy').value = s.command_policy; $('#s-ws').value = s.web_search;
+  $('#s-lreset').onclick = () => { $$('[data-limit]').forEach((i) => (i.value = 0)); toast('Defaults restore when you save'); };
   $('#s-save').onclick = async () => {
     const n = (id) => parseInt($(id).value, 10) || 0;
     const body = { language: $('#s-lang').value, max_turns_per_step: n('#s-turns'), max_concurrent_tasks: n('#s-conc'), auto_analyze: $('#s-aa').checked, auto_run: $('#s-ar').checked,
       auto_promote_memory: $('#s-ap').checked, task_token_budget: n('#s-budget'), task_turn_budget: n('#s-tbudget'), code_context_tokens: n('#s-ctx'), compact_at_pct: n('#s-compact'),
       tool_output_max_chars: n('#s-tout'), record_llm: $('#s-rec').checked, untrusted_boundary: $('#s-ub').checked, command_policy: $('#s-policy').value,
       command_timeout_sec: n('#s-ctime'), command_allowlist: $('#s-allow').value.split('\n').map((x) => x.trim()).filter(Boolean), retry_attempts: n('#s-retry'),
-      breaker_cooldown_sec: n('#s-cool'), web_search: $('#s-ws').value, web_search_key: $('#s-wsk').value, web_fetch: $('#s-wf').checked, public_url: $('#s-url').value };
+      breaker_cooldown_sec: n('#s-cool'), web_search: $('#s-ws').value, web_search_key: $('#s-wsk').value, web_fetch: $('#s-wf').checked, public_url: $('#s-url').value,
+      limits: Object.fromEntries($$('[data-limit]').map((i) => [i.dataset.limit, parseInt(i.value, 10) || 0])) };
     const r = await act(() => api('PUT', '/settings', body), 'Settings saved'); if (r) S.cfg = r;
   };
 };

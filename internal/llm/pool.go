@@ -21,15 +21,48 @@ type Pool struct {
 	next     map[string]time.Time // earliest time the next request may start (rate limit)
 	attempts int                  // tries per profile for transient errors
 	cooldown time.Duration        // fixed breaker cooldown (0 = 1/5/30 min ladder)
+	tripN    int                  // consecutive transient failures that trip a profile
+	backoff  time.Duration        // base retry backoff
+	raCap    time.Duration        // longest Retry-After honoured
+}
+
+// Policy is the pool's retry / breaker configuration (Settings → Limits).
+type Policy struct {
+	Attempts      int
+	Cooldown      time.Duration
+	TripAfter     int
+	Backoff       time.Duration
+	RetryAfterCap time.Duration
+}
+
+// Configure applies a full policy.
+func (p *Pool) Configure(pol Policy) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.attempts, p.cooldown, p.tripN, p.backoff, p.raCap = pol.Attempts, pol.Cooldown, pol.TripAfter, pol.Backoff, pol.RetryAfterCap
+}
+
+func (p *Pool) policy() (int, time.Duration, time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	d := store.DefaultLimits()
+	tripN, backoff, raCap := p.tripN, p.backoff, p.raCap
+	if tripN <= 0 {
+		tripN = d.BreakerTripAfter
+	}
+	if backoff <= 0 {
+		backoff = time.Duration(d.RetryBackoffSec) * time.Second
+	}
+	if raCap <= 0 {
+		raCap = time.Duration(d.RetryAfterCapSec) * time.Second
+	}
+	return tripN, backoff, raCap
 }
 
 // SetPolicy updates retry attempts and breaker cooldown (safe at any time).
 func (p *Pool) SetPolicy(attempts int, cooldown time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if attempts <= 0 {
-		attempts = 3
-	}
 	p.attempts, p.cooldown = attempts, cooldown
 }
 
@@ -37,7 +70,7 @@ func (p *Pool) tries() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.attempts <= 0 {
-		return 3
+		return store.DefaultSettings().RetryAttempts
 	}
 	return p.attempts
 }
@@ -88,6 +121,7 @@ func (p *Pool) pass(id string) {
 }
 
 func (p *Pool) trip(id string, err error, hard bool) {
+	tripN, _, _ := p.policy()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	b := p.brk[id]
@@ -97,7 +131,7 @@ func (p *Pool) trip(id string, err error, hard bool) {
 	}
 	b.Fails++
 	b.LastError = err.Error()
-	if hard || b.Fails >= 2 {
+	if hard || b.Fails >= tripN {
 		d := cooldowns[min(b.Trips, len(cooldowns)-1)]
 		if p.cooldown > 0 {
 			d = p.cooldown
@@ -213,11 +247,12 @@ func (p *Pool) Do(ctx context.Context, chain []*store.Profile, req Request, need
 				if cls == errRequest {
 					break
 				}
-				// transient: back off, honour Retry-After (capped)
-				d := time.Duration(2+attempt*4) * time.Second
+				// transient: exponential backoff, honour Retry-After (capped)
+				_, base, raCap := p.policy()
+				d := base << attempt
 				var he *HTTPError
 				if errors.As(err, &he) && he.RetryAfter > 0 {
-					d = min(he.RetryAfter, 30*time.Second)
+					d = min(he.RetryAfter, raCap)
 				}
 				if attempt == tries-1 {
 					p.trip(prof.ID, err, false)

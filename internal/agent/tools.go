@@ -96,9 +96,7 @@ func toolDefs(o toolSet) []llm.Tool {
 			schema = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
 		desc := strings.TrimSpace(b.Tool.Description)
-		if len(desc) > 600 {
-			desc = desc[:600] + "…"
-		}
+		desc = excerpt(desc, o.settings.Limits.SummaryChars)
 		tools = append(tools, llm.Tool{Name: b.Name, Description: "[MCP " + b.Server.Name + "] " + desc, Schema: schema})
 	}
 	if !o.readOnly {
@@ -172,9 +170,9 @@ func (tc *toolCtx) exec(call llm.ToolCall) toolOutcome {
 	case "list_dir":
 		out, err = tc.listDir(s("path"), n("depth", 2))
 	case "read_file":
-		out, err = tc.readFile(s("path"), n("start_line", 1), n("end_line", 0))
+		out, err = tc.readFile(s("path"), n("start_line", 1), n("end_line", 0), tc.settings.Limits.ReadFileLines)
 	case "search":
-		out, err = tc.search(s("query"), b("regex"), s("path"), n("max_results", 50))
+		out, err = tc.search(s("query"), b("regex"), s("path"), n("max_results", tc.settings.Limits.SearchMaxResults))
 	case "write_file":
 		out, err = tc.writeFile(s("path"), s("content"))
 	case "edit_file":
@@ -188,7 +186,7 @@ func (tc *toolCtx) exec(call llm.ToolCall) toolOutcome {
 	case "web_search":
 		out, err = webSearch(tc.ctx, tc.settings, s("query"))
 	case "web_fetch":
-		out, err = webFetch(tc.ctx, s("url"))
+		out, err = webFetch(tc.ctx, s("url"), tc.settings.Limits)
 	default:
 		if isMCP {
 			var isErr bool
@@ -214,7 +212,7 @@ func (tc *toolCtx) saveMemory(note, scope string) (string, error) {
 	if note == "" {
 		return "", errors.New("empty note")
 	}
-	note = clip(note, 500)
+	note = clip(note, tc.settings.Limits.SummaryChars)
 	if scope == "project" && tc.project != nil {
 		_, err := tc.e.Store.UpdateProject(tc.project.ID, func(p *store.Project) error {
 			for _, k := range p.Knowledge {
@@ -246,7 +244,7 @@ func (tc *toolCtx) mcpCall(call llm.ToolCall) (string, bool, error) {
 	if !ok {
 		return "", false, fmt.Errorf("unknown MCP tool %q", call.Name)
 	}
-	label := fmt.Sprintf("mcp %s.%s %s", srv.Name, tool, excerpt(string(call.Args), 300))
+	label := fmt.Sprintf("mcp %s.%s %s", srv.Name, tool, excerpt(string(call.Args), tc.settings.Limits.SummaryChars))
 	if srv.Approval {
 		if tc.readOnly || tc.taskID == "" {
 			return "", false, errors.New("this MCP server requires approval; it can only be used by the worker inside a task")
@@ -333,7 +331,7 @@ func (tc *toolCtx) listDir(p string, depth int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	files, err := codeidx.Scan(full, 3000)
+	files, err := codeidx.Scan(full, tc.settings.Limits.CodeScanMaxFiles)
 	if err != nil {
 		return "", err
 	}
@@ -343,14 +341,14 @@ func (tc *toolCtx) listDir(p string, depth int) (string, error) {
 			kept = append(kept, f)
 		}
 	}
-	tree := codeidx.Tree(kept, 250)
+	tree := codeidx.Tree(kept, tc.settings.Limits.CodeTreeLines)
 	if tree == "" {
 		tree = "(empty)"
 	}
 	return fmt.Sprintf("%s (%d files total below)\n%s", tc.relPath(full), len(files), tree), nil
 }
 
-func (tc *toolCtx) readFile(p string, start, end int) (string, error) {
+func (tc *toolCtx) readFile(p string, start, end, window int) (string, error) {
 	full, err := tc.resolve(p)
 	if err != nil {
 		return "", err
@@ -361,7 +359,7 @@ func (tc *toolCtx) readFile(p string, start, end int) (string, error) {
 	}
 	defer f.Close()
 	if end <= 0 || end < start {
-		end = start + 399
+		end = start + window - 1
 	}
 	var b strings.Builder
 	sc := bufio.NewScanner(f)
@@ -398,11 +396,11 @@ func (tc *toolCtx) search(q string, isRe bool, sub string, maxRes int) (string, 
 		}
 	}
 	lq := strings.ToLower(q)
-	files, _ := codeidx.Scan(base, 8000)
+	files, _ := codeidx.Scan(base, tc.settings.Limits.CodeScanMaxFiles)
 	var b strings.Builder
 	count := 0
 	for _, f := range files {
-		if f.Size > 512*1024 {
+		if f.Size > int64(tc.settings.Limits.CodeMaxFileKB)<<10 {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(base, filepath.FromSlash(f.Path)))
@@ -418,7 +416,7 @@ func (tc *toolCtx) search(q string, isRe bool, sub string, maxRes int) (string, 
 			}
 			if hit {
 				rel := tc.relPath(filepath.Join(base, filepath.FromSlash(f.Path)))
-				fmt.Fprintf(&b, "%s:%d: %s\n", rel, i+1, clip(strings.TrimSpace(ln), 200))
+				fmt.Fprintf(&b, "%s:%d: %s\n", rel, i+1, clip(strings.TrimSpace(ln), tc.settings.Limits.SummaryChars))
 				count++
 				if count >= maxRes {
 					fmt.Fprintf(&b, "…(stopped at %d results)\n", maxRes)
@@ -693,7 +691,7 @@ func (e *Engine) waitApproval(ctx context.Context, id, step, cmd string) (bool, 
 	}()
 	_, _ = e.Store.UpdateTask(id, func(t *store.Task) error { t.Pending = ap; t.Status = "waiting for command approval"; return nil })
 	e.emit(id, "approval", step, "approval needed", cmd, map[string]any{"id": ap.ID})
-	timer := time.NewTimer(30 * time.Minute)
+	timer := time.NewTimer(time.Duration(e.lim().ApprovalTimeoutMin) * time.Minute)
 	defer timer.Stop()
 	for {
 		select {

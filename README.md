@@ -154,6 +154,30 @@ Sau đó vào **System → Agents** để xếp chuỗi failover cho từng agen
 
 ## Cài đặt và chạy
 
+### Tải bản phát hành (khuyên dùng)
+
+Vào trang [Releases](https://github.com/KhangPhanTZ/AATMT/releases) và tải file theo hệ điều hành:
+
+| Hệ điều hành | File |
+|---|---|
+| **Windows: bộ cài** | `AATMT-Setup-<version>-x64.exe` (Intel/AMD) hoặc `-arm64.exe` |
+| Windows: bản portable | `aatmt-<version>-windows-amd64.zip` / `-arm64.zip` |
+| macOS | `aatmt-<version>-darwin-arm64.tar.gz` (Apple Silicon) / `-amd64.tar.gz` (Intel) |
+| Linux | `aatmt-<version>-linux-amd64.tar.gz` / `-arm64.tar.gz` |
+
+**Bộ cài Windows:**
+- Mở file setup, bấm Next, rồi Install. App cài cho user hiện tại nên không cần quyền admin.
+- Bộ cài tạo shortcut trong Start Menu. Có thể chọn thêm shortcut desktop và tự chạy khi đăng nhập.
+- Mở **AATMT** sẽ tự mở trình duyệt vào giao diện. Đóng cửa sổ console để tắt app.
+- Gỡ cài đặt trong *Settings → Apps*. Dữ liệu ở `%APPDATA%\aatmt` được giữ lại.
+- Bộ cài chưa ký số (code signing), nên Windows SmartScreen có thể cảnh báo. Chọn *More info → Run anyway*.
+
+**macOS / Linux:** giải nén rồi chạy `./aatmt -open`. Trên macOS, lần đầu có thể phải bỏ cờ quarantine: `xattr -d com.apple.quarantine ./aatmt`.
+
+So sánh mã băm với file `SHA256SUMS` để kiểm tra file tải về.
+
+### Build từ mã nguồn
+
 Cần Go 1.24 trở lên:
 
 ```bash
@@ -176,12 +200,26 @@ Server chạy ở `http://127.0.0.1:8787`. Dữ liệu nằm ở `~/.config/aatm
 | `-data` / `AATMT_DATA` | thư mục config của OS | nơi lưu dữ liệu |
 | `-token` / `AATMT_TOKEN` | – | **bắt buộc** khi lắng nghe ngoài loopback |
 | `-open` | false | tự mở trình duyệt |
+| `-version` | – | in phiên bản |
 
-Build cho mọi nền tảng:
+### Tạo bản phát hành
+
+Lệnh dưới đây build file nén cho Linux/macOS/Windows (amd64 + arm64), bộ cài Windows (cần [NSIS 3](https://nsis.sourceforge.io), ví dụ `apt-get install nsis`) và `SHA256SUMS` vào thư mục `dist/`:
 
 ```bash
-./build.sh v0.2.0
+./build.sh v1.0.0
 ```
+
+Khi push tag `v*`, workflow `.github/workflows/release.yml` tự chạy test, build tất cả rồi đăng lên GitHub Releases. Nội dung release lấy từ `.github/release-notes/<tag>.md`.
+
+## Không hard-code, không con số giả định
+
+- **Mọi giới hạn và timeout** đều nằm trong *Settings → Limits*: dung lượng upload/ảnh, số file quét, ngân sách prompt, timeout của model/MCP/git/webhook/web, retry/backoff, số ngày lưu, số dòng log… Giá trị mặc định chỉ dùng khi ô để trống, và hiển thị ngay trong form.
+- **Ước lượng token** được tính từ prompt thật. Tỉ lệ ký tự/token được **đo từ các lần gọi thật** của từng provider: lấy số ký tự đã gửi chia cho số token provider tính tiền, và hiển thị trên thẻ provider. Khi provider chưa được đo, app dùng tỉ lệ phổ biến 4 ký tự/token và ghi rõ là chưa đo. Token của ảnh được tính bằng công thức công bố của Anthropic/OpenAI theo **kích thước pixel thật** của ảnh.
+- **Chi phí** chỉ tính từ giá bạn nhập theo hợp đồng (input, output, cache read, cache write). Không có hệ số giảm giá cache nào được giả định sẵn.
+- **Context window, max output, khả năng vision** lấy từ API `/models` của provider khi provider có trả về (Anthropic, OpenRouter, vLLM, LiteLLM). Preset chỉ chứa thông tin endpoint, không ghi sẵn tên model hay con số nào.
+- **Public URL** trong thông báo mặc định là địa chỉ server đang lắng nghe thật.
+- **Phiên bản** được gắn lúc build và hiển thị ở chân sidebar và `-version`.
 
 ## Bảo mật
 
@@ -233,6 +271,9 @@ internal/mcp/       MCP client (Streamable HTTP, SSE, stdio) + quản lý kết 
 internal/notify/    webhook Slack/Discord/Teams/generic
 internal/logbuf/    buffer log cho trang Logs
 internal/server/    REST + SSE API, bảo vệ CSRF/host/token
+internal/version/   phiên bản (gắn lúc build)
+packaging/windows/  script NSIS cho bộ cài Windows
+tools/mkicon/       vẽ logo ra .ico/.png (chỉ dùng thư viện chuẩn)
 web/static/         UI (core.js, tasks.js, projects.js, system.js, mcp.js, style.css), nhúng bằng go:embed
 ```
 

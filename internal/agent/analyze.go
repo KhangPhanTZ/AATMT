@@ -68,9 +68,8 @@ func (e *Engine) transcribe(ctx context.Context, id string) error {
 		}
 		e.setStatus(id, "reading screenshot "+im.Name)
 		resp, err := e.call(ctx, callOpts{taskID: id, projectID: t.ProjectID, role: store.RoleVision, vision: true}, llm.Request{
-			System:    e.prompt(store.RoleVision, visionPrompt),
-			Messages:  []llm.Message{{Role: "user", Text: "Read this image.", Images: []llm.Image{{Mime: im.Mime, Data: data}}}},
-			MaxTokens: 4096,
+			System:   e.prompt(store.RoleVision, visionPrompt),
+			Messages: []llm.Message{{Role: "user", Text: "Read this image.", Images: []llm.Image{{Mime: im.Mime, Data: data, Width: im.Width, Height: im.Height}}}},
 		})
 		if err != nil {
 			return fmt.Errorf("vision (%s): %w — add a vision-capable profile, or type the screenshot text manually", im.Name, err)
@@ -109,15 +108,14 @@ func (e *Engine) analyze(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	st := e.Store.Config().Settings
-	req := llm.Request{
-		System:    e.analyzerSystem(st.Language),
-		Messages:  []llm.Message{{Role: "user", Text: e.AnalysisPrompt(t)}},
-		MaxTokens: 8192,
-	}
-	e.emit(id, "info", "", "analysis context", fmt.Sprintf("≈%d tokens", llm.EstimateRequest(req)), nil)
-	var a analysis
+	req := e.analysisRequest(t)
 	opts := callOpts{taskID: id, projectID: t.ProjectID, role: store.RoleAnalyzer, override: e.override(t, store.RoleAnalyzer)}
+	var head *store.Profile
+	if ch := e.chain(opts.role, opts.override, 0); len(ch) > 0 {
+		head = ch[0]
+	}
+	e.emit(id, "info", "", "analysis context", fmt.Sprintf("≈%d tokens", llm.EstimateRequest(head, req)), nil)
+	var a analysis
 	resp, err := e.call(ctx, opts, req)
 	if err != nil {
 		return err
@@ -171,6 +169,57 @@ func (e *Engine) analyze(ctx context.Context, id string) error {
 		e.emit(id, "stage", "", store.StagePlanned, fmt.Sprintf("%d steps planned", len(a.Plan)), nil)
 	}
 	return err
+}
+
+func (e *Engine) analysisRequest(t *store.Task) llm.Request {
+	return llm.Request{
+		System:   e.analyzerSystem(e.Store.Config().Settings.Language),
+		Messages: []llm.Message{{Role: "user", Text: e.AnalysisPrompt(t)}},
+	}
+}
+
+// Estimate is a pre-flight token estimate for analysing a task, computed from
+// the real prompt, the measured chars/token of the providers that will be
+// used, and the real pixel size of the screenshots still to be read.
+type Estimate struct {
+	AnalysisTokens   int     `json:"analysis_tokens"`
+	VisionTokens     int     `json:"vision_tokens"`
+	ImagesToRead     int     `json:"images_to_transcribe"`
+	AnalyzerProfile  string  `json:"analyzer_profile"`
+	VisionProfile    string  `json:"vision_profile"`
+	CharsPerToken    float64 `json:"chars_per_token"` // 0 = not measured yet for the analyzer profile
+	PromptCharacters int     `json:"prompt_characters"`
+}
+
+func (e *Engine) EstimateAnalysis(t *store.Task) Estimate {
+	req := e.analysisRequest(t)
+	var est Estimate
+	var an, vi *store.Profile
+	if ch := e.chain(store.RoleAnalyzer, e.override(t, store.RoleAnalyzer), 0); len(ch) > 0 {
+		an = ch[0]
+		est.AnalyzerProfile = an.Name
+		est.CharsPerToken = llm.Measured(an.ID)
+	}
+	for _, p := range e.chain(store.RoleVision, "", 0) {
+		if p.Enabled && p.Vision {
+			vi = p
+			est.VisionProfile = p.Name
+			break
+		}
+	}
+	est.AnalysisTokens = llm.EstimateRequest(an, req)
+	est.PromptCharacters = len([]rune(req.System + req.Messages[0].Text))
+	format := ""
+	if vi != nil {
+		format = vi.Format
+	}
+	for _, im := range t.Images {
+		if strings.TrimSpace(im.Transcript) == "" {
+			est.ImagesToRead++
+			est.VisionTokens += llm.ImageTokens(format, im.Width, im.Height)
+		}
+	}
+	return est
 }
 
 func parseAnalysis(text string, a *analysis) error {

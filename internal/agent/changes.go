@@ -28,7 +28,7 @@ func (e *Engine) FileDiff(t *store.Task, path string) (string, error) {
 		if b, err := os.ReadFile(filepath.Join(e.Store.Workspace(t), filepath.FromSlash(c.Path))); err == nil {
 			after = string(b)
 		}
-		return UnifiedDiff(before, after, c.Path, 3), nil
+		return UnifiedDiff(before, after, c.Path, diffContext, e.lim().DiffMaxCells), nil
 	}
 	return "", errors.New("no change recorded for this path")
 }
@@ -79,7 +79,10 @@ func (e *Engine) Revert(id, path string) (int, error) {
 
 // UnifiedDiff produces a compact unified diff (LCS on lines, common
 // prefix/suffix trimmed first so large files with small edits stay cheap).
-func UnifiedDiff(a, b, name string, ctx int) string {
+// diffContext is the unified-diff convention (same as `diff -u` / git).
+const diffContext = 3
+
+func UnifiedDiff(a, b, name string, ctx, maxCells int) string {
 	if a == b {
 		return ""
 	}
@@ -104,7 +107,7 @@ func UnifiedDiff(a, b, name string, ctx int) string {
 	for i := 0; i < pre; i++ {
 		ops = append(ops, op{' ', al[i], i, i})
 	}
-	if len(am)*len(bm) > 9_000_000 {
+	if len(am)*len(bm) > maxCells {
 		for i, l := range am {
 			ops = append(ops, op{'-', l, pre + i, -1})
 		}

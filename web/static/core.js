@@ -299,6 +299,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'n' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !$('#modal-root').innerHTML) { e.preventDefault(); openCapture(); }
   });
   window.addEventListener('hashchange', route);
+  api('GET', '/health').then((h) => { if (h && h.version) $('#foot-text').textContent = 'aatmt ' + h.version; }).catch(() => {});
   Promise.all([loadConfig(), loadProjects()]).then(() => {
     route(); connect(); refreshPending();
     if (S.cfg && !S.cfg.profiles.length && !location.hash.includes('providers')) toast('Get started: add an AI provider under System → AI Providers');
