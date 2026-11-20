@@ -16,9 +16,8 @@ jobs:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # tag push: build the tag; manual run: build the selected branch and tag that commit
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -35,7 +34,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           elif [ -n "$notes" ]; then
-            gh release create "$TAG" dist/* --title "AATMT $TAG" --notes-file "$notes"
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "AATMT $TAG" --notes-file "$notes"
           else
-            gh release create "$TAG" dist/* --title "AATMT $TAG" --generate-notes
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "AATMT $TAG" --generate-notes
           fi
