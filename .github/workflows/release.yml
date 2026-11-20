@@ -1,4 +1,6 @@
 name: Release
+# Uses no third-party actions (only git, go and gh that ship with the runner),
+# so it also works when the repository only allows local actions.
 on:
   push:
     tags: ["v*"]
@@ -15,16 +17,20 @@ jobs:
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GOTOOLCHAIN: auto # fetch the Go version go.mod asks for
     steps:
-      # tag push: build the tag; manual run: build the selected branch and tag that commit
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - name: Check out the commit being released
+        run: |
+          git init -q .
+          git fetch -q --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
+          git checkout -q FETCH_HEAD
+      - name: Go version
+        run: go version
       - name: Test
         run: go vet ./... && go test -race ./...
       - name: Install NSIS (Windows installer builder)
-        run: sudo apt-get update && sudo apt-get install -y nsis
+        run: sudo apt-get update -q && sudo apt-get install -y -q nsis
       - name: Build artifacts
         run: ./build.sh "$TAG"
       - name: Publish GitHub release
